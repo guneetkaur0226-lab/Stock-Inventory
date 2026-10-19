@@ -1,0 +1,260 @@
+rules_version = '2';
+
+// =====================================================================
+//  MAYAPURI STOCK - Firestore security rules
+//
+//  >>> BEFORE PUBLISHING: change the owner email on the line marked
+//  >>> "OWNER EMAIL" below to your father's real Google/Gmail address
+//  >>> (all small letters). Nothing else needs editing.
+//
+//  Summary of what these rules enforce on the SERVER (not just in the app):
+//   - Only the owner can read/write supplier prices, import, delete items,
+//     manage staff.
+//   - Staff can read items, record IN/OUT, add new items, read history.
+//   - History ("movements") can be created but NEVER updated or deleted by
+//     anyone, including the owner.
+//   - Every stock change must come with a matching history entry in the same
+//     save, the numbers must add up, and stock can never go below zero.
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------ helpers
+    // OWNER EMAIL  (all lowercase) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    function ownerEmail() { return 'bakshistock@gmail.com'; }
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+
+    // The owner is recognised by verified email only (no database lookup).
+    function isOwner() { return signedIn() && myEmail() == ownerEmail(); }
+
+    // Staff = has a profile document with role "staff" (created only if the
+    // owner invited that email; deleted by the owner to remove access).
+    function isStaff() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff';
+    }
+    function isMember() { return isOwner() || isStaff(); }
+
+    function isStr(v, max) { return v is string && v.size() <= max; }
+    function isNum(v) { return v is number; }
+    function validUnit(u) { return u in ['pcs', 'set', 'kg', 'm', 'box']; }
+
+    // ------------------------------------------------------------- users
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isOwner());
+      allow list: if isOwner();
+
+      // A person can create ONLY their own profile, and only as:
+      //   owner - if their verified email is the owner email above
+      //   staff - if the owner has invited their email
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'createdAt'])
+        && request.resource.data.email == myEmail()
+        && isStr(request.resource.data.name, 80)
+        && request.resource.data.createdAt == request.time
+        && (
+          (request.resource.data.role == 'owner' && isOwner())
+          || (request.resource.data.role == 'staff'
+              && exists(/databases/$(database)/documents/invites/$(myEmail())))
+        );
+
+      allow update: if false;
+      // Owner removes a staff member (cannot remove an owner profile).
+      allow delete: if isOwner() && resource.data.role != 'owner';
+    }
+
+    // ----------------------------------------------------------- invites
+    match /invites/{email} {
+      allow get: if isOwner() || (signedIn() && myEmail() == email);
+      allow list: if isOwner();
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly(['name', 'role', 'invitedAt'])
+        && request.resource.data.role == 'staff'
+        && isStr(request.resource.data.name, 80);
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------- items
+    function validItem(d) {
+      return d.keys().hasOnly([
+          'name', 'partNo', 'brand', 'model', 'qty', 'unit', 'minQty',
+          'bySupplier', 'lastMoveId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && d.keys().hasAll([
+          'name', 'partNo', 'brand', 'model', 'qty', 'unit', 'minQty',
+          'bySupplier', 'lastMoveId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && isStr(d.name, 120) && d.name.size() > 0
+        && isStr(d.partNo, 60)
+        && isStr(d.brand, 60)
+        && isStr(d.model, 120)
+        && isNum(d.qty) && d.qty >= 0 && d.qty <= 10000000
+        && validUnit(d.unit)
+        && isNum(d.minQty) && d.minQty >= 0 && d.minQty <= 10000000
+        && d.bySupplier is map
+        && isStr(d.lastMoveId, 40) && d.lastMoveId.size() > 0
+        && d.createdAt is timestamp && d.updatedAt is timestamp
+        && isStr(d.createdBy, 128) && isStr(d.updatedBy, 128);
+    }
+
+    function movePathFor(lastMoveId) {
+      return /databases/$(database)/documents/movements/$(lastMoveId);
+    }
+
+    // Staff creating an item: the matching "NEW" history entry must be saved
+    // in the same batch.
+    function newItemBound(itemId, n) {
+      let m = getAfter(movePathFor(n.lastMoveId)).data;
+      return m.type == 'NEW' && m.itemId == itemId && m.by == request.auth.uid
+        && m.stockAfter == n.qty;
+    }
+
+    // Any change to an item: a history entry saved in the same batch must
+    // describe it, and the numbers must add up.
+    function changeBound(itemId, n, o) {
+      let m = getAfter(movePathFor(n.lastMoveId)).data;
+      let changed = n.diff(o).affectedKeys();
+      return m.itemId == itemId && m.by == request.auth.uid && m.stockAfter == n.qty
+        && (
+          // stock IN / OUT (staff or owner): only quantity fields change
+          (
+            m.type in ['IN', 'OUT']
+            && m.qty > 0
+            && changed.hasOnly(['qty', 'bySupplier', 'lastMoveId', 'updatedAt', 'updatedBy'])
+            && (
+              (m.type == 'IN' && math.abs(n.qty - (o.qty + m.qty)) < 0.0005)
+              || (m.type == 'OUT' && n.qty >= 0 && math.abs(n.qty - (o.qty - m.qty)) < 0.0005)
+            )
+          )
+          // edit of details (owner only): quantity stays the same
+          || (
+            isOwner()
+            && m.type == 'EDIT'
+            && changed.hasOnly(['name', 'partNo', 'brand', 'model', 'unit', 'minQty', 'lastMoveId', 'updatedAt', 'updatedBy'])
+            && n.qty == o.qty
+          )
+        );
+    }
+
+    match /items/{itemId} {
+      allow read: if isMember();
+
+      // New item. The owner (also used by bulk import) is unrestricted apart
+      // from field validation; staff must save a matching "NEW" history entry.
+      allow create: if isMember()
+        && validItem(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && (isOwner() || newItemBound(itemId, request.resource.data));
+
+      allow update: if isMember()
+        && validItem(request.resource.data)
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.lastMoveId != resource.data.lastMoveId
+        && changeBound(itemId, request.resource.data, resource.data);
+
+      allow delete: if isOwner();
+    }
+
+    // --------------------------------------------------------- movements
+    // The audit trail. Create-only. update/delete are false for EVERYONE.
+    function validMove(d) {
+      return d.keys().hasOnly([
+          'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
+          'note', 'supplier', 'by', 'byName', 'at'
+        ])
+        && d.keys().hasAll([
+          'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
+          'note', 'supplier', 'by', 'byName', 'at'
+        ])
+        && isStr(d.itemId, 40) && d.itemId.size() > 0
+        && isStr(d.itemName, 120)
+        && isStr(d.partNo, 60)
+        && d.type in ['IN', 'OUT', 'NEW', 'EDIT', 'DELETE']
+        && isNum(d.qty) && d.qty >= 0 && d.qty <= 10000000
+        && isNum(d.stockAfter) && d.stockAfter >= 0 && d.stockAfter <= 10000000
+        && validUnit(d.unit)
+        && isStr(d.note, 300)
+        && isStr(d.supplier, 80)
+        && isStr(d.byName, 80)
+        && d.by == request.auth.uid
+        && d.at == request.time;
+    }
+
+    function moveBound(moveId, d) {
+      let itemPath = /databases/$(database)/documents/items/$(d.itemId);
+      return d.type != 'DELETE'
+        && getAfter(itemPath).data.lastMoveId == moveId
+        && (d.type != 'NEW' || !exists(itemPath))
+        && (d.type != 'EDIT' || isOwner())
+        // staff cannot sign history entries with someone else's name
+        && (isOwner()
+            || d.byName == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.name);
+    }
+
+    match /movements/{moveId} {
+      allow read: if isMember();
+      allow update, delete: if false;
+
+      allow create: if isMember()
+        && validMove(request.resource.data)
+        && (
+          // Owner only: bulk-import / delete markers need no item link.
+          (isOwner() && request.resource.data.type in ['NEW', 'DELETE'])
+          // Everything else: the item must be saved in the same batch and
+          // point back at this entry.
+          || moveBound(moveId, request.resource.data)
+        );
+    }
+
+    // ---------------------------------------------------------- suppliers
+    // Supplier NAMES (no prices). Everyone signed in can read, so staff can
+    // pick a supplier when recording stock IN. Only the owner can change.
+    match /suppliers/{sid} {
+      allow read: if isMember();
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly(['name', 'note', 'updatedAt'])
+        && isStr(request.resource.data.name, 80) && request.resource.data.name.size() > 0
+        && isStr(request.resource.data.note, 200);
+      allow delete: if isOwner();
+    }
+
+    // ------------------------------------------------------------- prices
+    // Supplier price list - OWNER ONLY, read and write.
+    match /prices/{pid} {
+      allow read: if isOwner();
+      allow create, update: if isOwner()
+        && request.resource.data.keys().hasOnly([
+             'supplier', 'item', 'partNo', 'price', 'unit', 'note',
+             'prevPrice', 'updatedAt', 'updatedBy'
+           ])
+        && isStr(request.resource.data.supplier, 80) && request.resource.data.supplier.size() > 0
+        && isStr(request.resource.data.item, 120) && request.resource.data.item.size() > 0
+        && isStr(request.resource.data.partNo, 60)
+        && isNum(request.resource.data.price) && request.resource.data.price > 0
+        && request.resource.data.price < 100000000
+        && (request.resource.data.prevPrice == null || isNum(request.resource.data.prevPrice))
+        && isStr(request.resource.data.unit, 10)
+        && isStr(request.resource.data.note, 200)
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if isOwner();
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
