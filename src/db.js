@@ -409,35 +409,41 @@ export async function deleteSupplier({ name, docIds = [], items, prices, user, o
   return { itemsUpdated: holders.length, pricesDeleted: myPrices.length };
 }
 
-// ------------------------------------------------ purge old history (owner)
-/** Entries newer than this many days can never be purged (also enforced in firestore.rules). */
-export const PURGE_MIN_DAYS = 30;
+// ------------------------------------------------ purge history (owner)
+/** Turns a { from, to } range into Firestore conditions on the history time stamp `at`. `from` is inclusive, `to` is exclusive; either may be null. */
+function rangeConditions({ from, to }) {
+  const c = [];
+  if (from) c.push(where('at', '>=', Timestamp.fromDate(from)));
+  if (to) c.push(where('at', '<', Timestamp.fromDate(to)));
+  return c;
+}
 
-/** How many history entries exist (optionally only those older than `olderThan`). Needs internet. */
-export async function countHistory(olderThan) {
+/** How many history entries exist (optionally only those inside { from, to }). Needs internet. */
+export async function countHistory(range) {
   const base = collection(db, 'movements');
-  const q = olderThan ? query(base, where('at', '<', Timestamp.fromDate(olderThan))) : query(base);
-  const snap = await getCountFromServer(q);
+  const snap = await getCountFromServer(query(base, ...(range ? rangeConditions(range) : [])));
   return snap.data().count;
 }
 
 /**
- * Deletes history entries older than `olderThan`. Only the `movements`
- * collection is touched: items (current stock), suppliers and prices are not.
+ * Deletes history entries whose time is inside { from, to } (from inclusive, to exclusive).
+ * Only the `movements` collection is touched: items (current stock), suppliers and prices are not.
  * Ids in `keepIds` (each item's latest history entry) are skipped.
  * Stops after about `maxDocs` deletions (free-plan daily limits); run again to continue.
  */
-export async function purgeHistory({ olderThan, keepIds = new Set(), maxDocs = 5000, onProgress }) {
-  const newest = Date.now() - PURGE_MIN_DAYS * 86400000;
-  if (!(olderThan instanceof Date) || olderThan.getTime() > newest) throw new Error(`Only entries older than ${PURGE_MIN_DAYS} days can be deleted.`);
-  const cutoff = Timestamp.fromDate(olderThan);
+export async function purgeHistory({ from = null, to = null, keepIds = new Set(), maxDocs = 5000, onProgress }) {
+  const okDate = (d) => d instanceof Date && !Number.isNaN(d.getTime());
+  if ((from && !okDate(from)) || (to && !okDate(to)) || (!from && !to)) throw new Error('Please choose a valid date range.');
+  if (from && to && from.getTime() >= to.getTime()) throw new Error('The start of the range must be before its end.');
+  if (to && to.getTime() > Date.now() + 60000) throw new Error('The range cannot end in the future.');
+  const conds = rangeConditions({ from, to });
   const PAGE = 400;
   let deleted = 0;
   let kept = 0;
   let cursor = null;
   let more = false;
   for (;;) {
-    const q = query(collection(db, 'movements'), where('at', '<', cutoff), orderBy('at', 'asc'), ...(cursor ? [startAfter(cursor)] : []), limit(PAGE));
+    const q = query(collection(db, 'movements'), ...conds, orderBy('at', 'asc'), ...(cursor ? [startAfter(cursor)] : []), limit(PAGE));
     const snap = await getDocs(q);
     if (snap.empty) break;
     const batch = writeBatch(db);

@@ -263,6 +263,12 @@ input[type='checkbox'] { width: 24px; min-height: 24px; height: 24px; accent-col
 code { background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px 6px; border-radius: 6px; }
 
 /* supplier card: stock items from this supplier */
-.sup-stock { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1.5px solid var(--line); }
-.sup-stock-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
-.sup-stock-name { overflow-wrap: anywhere; }
+.sup-stock { display: flex; flex-direction: column; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1.5px solid var(--line); }
+.sup-stock > .muted { padding-bottom: 6px; }
+/* every row has the same structure and height: item name (one line) + part no. underneath, quantity in its own column */
+.sup-stock-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; min-height: 52px; padding: 6px 0; font-size: 15px; border-top: 1px solid var(--line); }
+.sup-stock-main { min-width: 0; }
+.sup-stock-name, .sup-stock-part { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sup-stock-name { font-weight: 600; line-height: 1.3; }
+.sup-stock-part { line-height: 1.3; }
+.sup-stock-qty { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

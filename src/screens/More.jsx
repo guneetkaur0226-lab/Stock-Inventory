@@ -23,7 +23,7 @@ export default function More() {
   }, []);
 
   if (page) {
-    const titles = { staff: 'Staff & invites', import: 'Import from Excel / CSV', export: 'Export & template', purge: 'Purge old history' };
+    const titles = { staff: 'Staff & invites', import: 'Import from Excel / CSV', export: 'Export & template', purge: 'Purge history' };
     const Body = { staff: Staff, import: Import, export: Export, purge: PurgeHistory }[page];
     return (
       <Page title={titles[page]} onBack={() => setPage(null)}>
@@ -58,7 +58,7 @@ export default function More() {
           <Row icon="user" title="Staff & invites" sub="Invite or remove staff" onClick={() => setPage('staff')} />
           <Row icon="upload" title="Import" sub="Stock, supplier prices, supplier names (.xlsx / .xls / .csv)" onClick={() => setPage('import')} />
           <Row icon="download" title="Export & template" sub="Stock, prices, history as CSV or Excel" onClick={() => setPage('export')} />
-          <Row icon="trash" title="Purge old history" sub="Free up storage by deleting old history (owner only)" onClick={() => setPage('purge')} />
+          <Row icon="trash" title="Purge history" sub="Free up storage by deleting history for a date range (owner only)" onClick={() => setPage('purge')} />
         </div>
       )}
 

@@ -12,8 +12,7 @@ rules_version = '2';
 //     manage staff.
 //   - Staff can read items, record IN/OUT, add new items, read history.
 //   - History ("movements") can be created but NEVER edited by anyone. Only
-//     the owner can delete, and only entries older than 30 days (this is the
-//     "Purge old history" feature that frees storage).
+//     the owner can delete (the "Purge history" feature that frees storage).
 //   - Every stock change must come with a matching history entry in the same
 //     save, the numbers must add up, and stock can never go below zero.
 // =====================================================================
@@ -178,8 +177,8 @@ service cloud.firestore {
     }
 
     // --------------------------------------------------------- movements
-    // The audit trail. Entries can never be edited. Only the OWNER can delete,
-    // and only entries older than 30 days (Purge old history). Current stock
+    // The audit trail. Entries can never be edited. Only the OWNER can delete
+    // (Purge history; the app asks for a date range). Current stock
     // lives in /items and is not affected.
     function validMove(d) {
       return d.keys().hasOnly([
@@ -218,9 +217,7 @@ service cloud.firestore {
     match /movements/{moveId} {
       allow read: if isMember();
       allow update: if false;
-      allow delete: if isOwner()
-        && resource.data.at is timestamp
-        && resource.data.at < request.time - duration.value(30, 'd');
+      allow delete: if isOwner();
 
       allow create: if isMember()
         && validMove(request.resource.data)

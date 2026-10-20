@@ -78,16 +78,49 @@ export function buildMail({ name, to, appUrl, from, replyTo }) {
   return { from, to, replyTo, subject, text, html };
 }
 
+/** Reads an env value safely: trims, drops wrapping quotes (a common copy/paste slip in Vercel). */
+const envText = (v) => String(v ?? '').trim().replace(/^(["'])(.*)\1$/, '$2').trim();
+
+/**
+ * SMTP settings from the Vercel variables. Gmail shows an App Password as four groups of letters
+ * separated by spaces ("abcd efgh ijkl mnop"); the spaces are not part of the password, so they are removed.
+ */
+export function smtpSettings(env) {
+  const user = envText(env.SMTP_USER) || envText(env.OWNER_EMAIL);
+  const host = envText(env.SMTP_HOST) || 'smtp.gmail.com';
+  const isGmail = /(^|\.)(gmail|googlemail)\.com$/i.test(host);
+  const rawPass = envText(env.SMTP_PASS);
+  const pass = isGmail ? rawPass.replace(/\s+/g, '') : rawPass;
+  const port = Number(envText(env.SMTP_PORT)) || 465;
+  return { user, pass, host, port, isGmail };
+}
+
 async function sendWithNodemailer(env, mail) {
   const { default: nodemailer } = await import('nodemailer');
-  const port = Number(env.SMTP_PORT || 465);
+  const { user, pass, host, port } = smtpSettings(env);
   const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST || 'smtp.gmail.com',
+    host,
     port,
     secure: port === 465,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    requireTLS: port !== 465,
+    auth: { user, pass },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
   await transport.sendMail(mail);
+}
+
+/** A plain-words reason for the owner, never including the password or server text. */
+export function mailFailureReason(e, isGmail = true) {
+  const code = e?.code || '';
+  if (code === 'EAUTH' || e?.responseCode === 535 || e?.responseCode === 534) {
+    return isGmail
+      ? 'Gmail refused the login. SMTP_PASS must be a 16-letter Google App Password (Google Account → Security → 2-Step Verification → App passwords), not your normal Gmail password, and SMTP_USER must be the Gmail address that created it.'
+      : 'The email login was refused. Check SMTP_USER and SMTP_PASS in Vercel.';
+  }
+  if (['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'EDNS'].includes(code)) return 'Could not reach the email server. Please try again in a minute.';
+  return 'The email provider did not accept the message.';
 }
 
 export function createHandler({ env = process.env, fetchImpl = fetch, send = sendWithNodemailer } = {}) {
@@ -131,15 +164,16 @@ export function createHandler({ env = process.env, fetchImpl = fetch, send = sen
     if (!appUrl) return reply(500, { ok: false, error: 'Server setting APP_URL is missing in Vercel.' });
 
     // 3) email provider settings
-    if (!env.SMTP_USER || !env.SMTP_PASS) {
+    const smtp = smtpSettings(env);
+    if (!smtp.user || !smtp.pass) {
       return reply(503, { ok: false, error: 'Email sending is not set up yet (SMTP_USER / SMTP_PASS are missing in Vercel).', appUrl });
     }
-    const from = tidy(env.MAIL_FROM, 200) || `"Mayapuri Stock" <${env.SMTP_USER}>`;
+    const from = tidy(envText(env.MAIL_FROM), 200) || `"Mayapuri Stock" <${smtp.user}>`;
 
     try {
       await send(env, buildMail({ name, to, appUrl, from, replyTo: ownerEmail }));
     } catch (e) {
-      const why = e?.code === 'EAUTH' ? 'The email login was refused (for Gmail use an App Password, not the normal password).' : 'The email provider did not accept the message.';
+      const why = mailFailureReason(e, smtp.isGmail);
       console.error('send-invite failed:', e?.code || '', e?.responseCode || '', String(e?.message || '').slice(0, 200));
       return reply(502, { ok: false, error: why, appUrl });
     }

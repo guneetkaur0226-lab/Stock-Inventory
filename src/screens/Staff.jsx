@@ -6,6 +6,7 @@ import { inviteStaff, removeStaff, sendInviteEmail } from '../db.js';
 import { Field, Icon, Spinner, useConfirm, useToast } from '../components/ui.jsx';
 import { fmtDate } from '../lib/format.js';
 import { clean } from '../lib/text.js';
+import { copyText, getAppUrl } from '../lib/appUrl.js';
 
 export default function Staff() {
   const auth = useAuth();
@@ -79,6 +80,12 @@ export default function Staff() {
     }
   }
 
+  const appUrl = getAppUrl();
+  async function copyUrl() {
+    if (await copyText(appUrl)) toast('App link copied. Paste it into WhatsApp or any chat.');
+    else toast(`Could not copy automatically. Press and hold the link to copy it: ${appUrl}`, 'err', 10000);
+  }
+
   if (users === null || invites === null) return <Spinner />;
   const staff = users.filter((u) => u.role === 'staff');
   const joined = new Set(staff.map((u) => u.email));
@@ -86,6 +93,15 @@ export default function Staff() {
 
   return (
     <>
+      <h3 className="sec">Share the app</h3>
+      <div className="card pad">
+        <p className="muted tiny">Send this link to staff (WhatsApp, SMS, anything). They must sign in with the email you invited.</p>
+        <p style={{ wordBreak: 'break-all', margin: '6px 0 10px' }}><b>{appUrl}</b></p>
+        <button className="btn" type="button" onClick={copyUrl}>
+          <Icon name="copy" size={18} /> Copy App URL
+        </button>
+      </div>
+
       <h3 className="sec">Invite staff</h3>
       <form className="form card pad" onSubmit={(e) => { e.preventDefault(); invite(); }}>
         <Field label="Name" error={errs.name} htmlFor="st-name">

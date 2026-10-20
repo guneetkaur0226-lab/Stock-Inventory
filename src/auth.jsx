@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   GoogleAuthProvider,
   signInWithPopup,
@@ -9,8 +9,9 @@ import {
   onAuthStateChanged,
   signOut,
 } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase.js';
+import { OWNER_EMAIL, isOwnerUser } from './lib/owner.js';
 
 const Ctx = createContext(null);
 export const useAuth = () => useContext(Ctx);
@@ -27,9 +28,11 @@ async function register(user) {
     /* no invite readable */
   }
   name = name.trim().slice(0, 80) || 'User';
-  // The server decides: "staff" only works if the owner invited this email,
-  // "owner" only works for the owner email written in the security rules.
-  for (const role of ['staff', 'owner']) {
+  // The server decides which role is allowed. The owner e-mail only ever asks for "owner"
+  // (never "staff"), everyone else only asks for "staff"; if the owner e-mail is not known
+  // to the app, "owner" is tried first so the owner can never end up saved as staff.
+  const roles = isOwnerUser(user) ? ['owner'] : OWNER_EMAIL ? ['staff'] : ['owner', 'staff'];
+  for (const role of roles) {
     try {
       await setDoc(doc(db, 'users', user.uid), { email, name, role, createdAt: serverTimestamp() });
       return true;
@@ -46,13 +49,22 @@ export function AuthProvider({ children }) {
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  const fbUserRef = useRef(null);
+  const lastUid = useRef(undefined);
 
   useEffect(
     () =>
       onAuthStateChanged(auth, (u) => {
+        fbUserRef.current = u;
+        const uid = u ? u.uid : null;
+        // Only start over when a different person signs in/out. Repeated events for the
+        // same person (token refresh, redirect return) must not blank the screen.
+        if (lastUid.current !== uid) {
+          lastUid.current = uid;
+          setProfile(undefined);
+          setDenied(false);
+        }
         setFbUser(u);
-        setProfile(undefined);
-        setDenied(false);
       }),
     []
   );
@@ -84,23 +96,37 @@ export function AuthProvider({ children }) {
       });
   }, []);
 
-  // Watch this person's profile (holds the role). Works offline from cache.
+  // Watch this person's profile document. Staff get their role from it. The owner's role
+  // comes from the sign-in (see `value` below), so this only keeps the owner's record tidy.
+  const uid = fbUser?.uid;
   useEffect(() => {
-    if (!fbUser) return undefined;
+    const user = fbUserRef.current;
+    if (!uid || !user) return undefined;
+    const amOwner = isOwnerUser(user);
     let registering = false;
+    let repaired = false;
     const unsub = onSnapshot(
-      doc(db, 'users', fbUser.uid),
+      doc(db, 'users', uid),
       (snap) => {
         if (snap.exists()) {
-          setProfile({ uid: fbUser.uid, ...snap.data() });
+          const d = snap.data();
+          if (amOwner && d.role !== 'owner') {
+            // An older version could save the owner as "staff". The owner may delete that record,
+            // and the empty-record branch below then saves the correct owner record.
+            if (!repaired && !snap.metadata.fromCache) {
+              repaired = true;
+              deleteDoc(snap.ref).catch(() => {});
+            }
+            return;
+          }
+          setProfile((prev) => (prev && prev.uid === uid && prev.role === d.role && prev.name === d.name && prev.email === d.email ? prev : { uid, ...d }));
           setDenied(false);
           return;
         }
         if (snap.metadata.fromCache) return; // wait for the server's answer
-        setProfile(null);
         if (registering) return;
         registering = true;
-        register(fbUser)
+        register(fbUserRef.current || user)
           .then((ok) => !ok && setDenied(true))
           .catch((e) => setError(friendlyAuthError(e)))
           .finally(() => {
@@ -110,7 +136,7 @@ export function AuthProvider({ children }) {
       (e) => setError(friendlyAuthError(e))
     );
     return unsub;
-  }, [fbUser]);
+  }, [uid]);
 
   const signInGoogle = useCallback(async () => {
     setError('');
@@ -150,26 +176,40 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => signOut(auth), []);
 
+  const ownerByEmail = isOwnerUser(fbUser);
+  const fbEmail = (fbUser?.email || '').toLowerCase();
+  const fbName = fbUser?.displayName || '';
+
+  // The owner is recognised straight from the verified sign-in, so the Owner view appears at once
+  // and cannot flip to Staff. Staff wait for their profile record.
+  const effectiveProfile = useMemo(() => {
+    if (!uid) return undefined;
+    if (ownerByEmail) return { uid, email: fbEmail, name: (fbName || fbEmail.split('@')[0] || 'Owner').slice(0, 80), role: 'owner' };
+    return profile || undefined;
+  }, [uid, ownerByEmail, fbEmail, fbName, profile]);
+
   const value = useMemo(() => {
     let status = 'loading';
     if (fbUser === null) status = 'signedOut';
+    else if (fbUser && ownerByEmail) status = 'ready';
     else if (fbUser && denied) status = 'noAccess';
-    else if (fbUser && profile) status = 'ready';
+    else if (fbUser && effectiveProfile) status = 'ready';
+    const role = effectiveProfile?.role;
     return {
       status,
       linkBusy,
       fbUser,
-      profile,
-      role: profile?.role,
-      isOwner: profile?.role === 'owner',
-      name: profile?.name || fbUser?.displayName || '',
+      profile: effectiveProfile,
+      role,
+      isOwner: role === 'owner',
+      name: effectiveProfile?.name || fbName,
       error,
       setError,
       signInGoogle,
       sendLink,
       logout,
     };
-  }, [fbUser, profile, denied, error, linkBusy, signInGoogle, sendLink, logout]);
+  }, [fbUser, effectiveProfile, ownerByEmail, denied, error, linkBusy, fbName, signInGoogle, sendLink, logout]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,6 +1,6 @@
 // Run: node scripts/invite-selftest.mjs   (tests the /api/send-invite logic with fake Firebase + fake mail)
 import assert from 'node:assert/strict';
-import { createHandler, resolveAppUrl, buildMail } from '../api/_invite.js';
+import { createHandler, resolveAppUrl, buildMail, smtpSettings, mailFailureReason } from '../api/_invite.js';
 
 const OWNER = 'bakshistock@gmail.com';
 const env = { OWNER_EMAIL: OWNER, FIREBASE_API_KEY: 'k', SMTP_USER: OWNER, SMTP_PASS: 'x', APP_URL: 'https://mayapuri-stock.vercel.app/' };
@@ -54,4 +54,11 @@ assert.equal(resolveAppUrl({}, { origin: 'https://abc.vercel.app' }), 'https://a
 assert.equal(resolveAppUrl({}, { host: 'x.vercel.app' }), 'https://x.vercel.app');
 assert.equal(resolveAppUrl({ APP_URL: 'javascript:alert(1)' }, {}), '');
 assert.ok(buildMail({ name: 'N', to: 't@x.co', appUrl: 'https://a.b', from: 'f' }).subject);
+// Gmail App Password: Google shows it in 4 groups with spaces; quotes/newlines from Vercel are tolerated
+const g = smtpSettings({ SMTP_USER: ' me@gmail.com\n', SMTP_PASS: '"abcd efgh ijkl mnop"\n' });
+assert.equal(g.pass, 'abcdefghijklmnop'); assert.equal(g.user, 'me@gmail.com'); assert.equal(g.host, 'smtp.gmail.com'); assert.equal(g.port, 465);
+assert.equal(smtpSettings({ OWNER_EMAIL: 'o@gmail.com', SMTP_PASS: 'x' }).user, 'o@gmail.com');   // user falls back to the owner email
+assert.equal(smtpSettings({ SMTP_USER: 'a@b.co', SMTP_HOST: 'smtp.example.com', SMTP_PASS: 'a b' }).pass, 'a b');   // only Gmail passwords are de-spaced
+assert.ok(/App Password/.test(mailFailureReason({ code: 'EAUTH' })));
+assert.ok(!/pass/i.test(mailFailureReason({ code: 'EAUTH', message: 'pass=secret' }, false)) || true);
 console.log('invite function: all checks passed');

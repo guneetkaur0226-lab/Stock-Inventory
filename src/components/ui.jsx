@@ -23,6 +23,7 @@ const P = {
   logout: 'M10 3h9v18h-9v-2h7V5h-7V3Zm-1.5 5.5L10 10l-1 1h8v2H9l1 1-1.5 1.5L4.5 12l4-3.5Z',
   filter: 'M3 5h18l-7 8v6l-4 2v-8L3 5Z',
   rupee: 'M7 4h11v2h-3.4c.8.7 1.3 1.6 1.4 2.6H18v2h-2c-.4 2.6-2.5 4.4-5.6 4.4H9.2l7.3 5.4-1.2 1.6L6 14.8V13h4.4c1.9 0 3.1-1 3.5-2H7V9h6.8c-.3-1.2-1.4-2-3.4-2H7V4Z',
+  copy: 'M8 3h10a2 2 0 0 1 2 2v11h-2V5H8V3Zm-3 4h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm0 2v10h10V9H5Z',
   mail: 'M3 5h18v14H3V5Zm2 2v.5l7 4.6 7-4.6V7H5Zm14 3-7 4.6L5 10v7h14v-7Z',
 };
 export function Icon({ name, size = 22, className = '' }) {

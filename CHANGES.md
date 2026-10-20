@@ -1,3 +1,11 @@
+# Changes in the latest update
+
+* **Owner/Staff switching fixed** (`src/auth.jsx`, `src/lib/owner.js`, `vite.config.js`): the Owner view is decided from the verified sign-in email compared with `OWNER_EMAIL` (read at build time), not from a saved database record, so it cannot flip. The owner is never saved as "staff" any more, and an old wrong record is repaired automatically.
+* **Purge history by date range** (`src/screens/PurgeHistory.jsx`, `src/db.js`, `firestore.rules`): Last day / 7 days / 30 days, older than 60 d / 90 d / 6 m / 1 y, or a custom date range. Only history entries inside the range are deleted; items, suppliers, prices and each item's latest history entry are kept. **Publish the updated `firestore.rules`** (the old 30-day minimum was removed).
+* **Suppliers tab**: stock items per supplier use a fixed two-line row (name, part no.) with the quantity in its own column.
+* **Staff invite email**: Gmail App Password support (spaces/quotes removed, clearer errors, timeouts); `SMTP_USER` falls back to `OWNER_EMAIL`. New **Copy App URL** button in More -> Staff & invites.
+* `package-lock.json` re-synced (it was missing `nodemailer`).
+
 # Changes in this update
 
 ## 1. Purge old history (owner only)

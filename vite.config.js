@@ -1,8 +1,16 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // OWNER_EMAIL (Vercel variable) is made available to the app at build time. Only this one
+  // non-secret address is exposed; SMTP_PASS and other server settings never reach the browser.
+  const env = loadEnv(mode, process.cwd(), '');
+  const ownerEmail = (env.OWNER_EMAIL || env.VITE_OWNER_EMAIL || '').trim().toLowerCase();
+  // Public address of the app (for the "Copy App URL" button): APP_URL, else Vercel's production domain.
+  const appUrl = (env.APP_URL || env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
+  return {
+  define: { __OWNER_EMAIL__: JSON.stringify(ownerEmail), __APP_URL__: JSON.stringify(appUrl) },
   plugins: [
     react(),
     VitePWA({
@@ -35,4 +43,5 @@ export default defineConfig({
     }),
   ],
   build: { chunkSizeWarningLimit: 900 },
+  };
 });

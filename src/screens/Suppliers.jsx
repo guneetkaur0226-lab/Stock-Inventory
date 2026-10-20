@@ -155,11 +155,11 @@ export default function Suppliers() {
                           <div className="muted tiny">In stock from this supplier</div>
                           {s.stock.slice(0, 50).map(({ item, qty }) => (
                             <div className="sup-stock-line" key={item.id}>
-                              <span className="sup-stock-name">
-                                {item.name}
-                                {item.partNo ? <span className="muted"> · {item.partNo}</span> : null}
-                              </span>
-                              <b>
+                              <div className="sup-stock-main">
+                                <div className="sup-stock-name" title={item.name}>{item.name}</div>
+                                <div className="sup-stock-part muted tiny">{item.partNo || 'No part no.'}</div>
+                              </div>
+                              <b className="sup-stock-qty">
                                 {fmtNum(qty)} {item.unit}
                               </b>
                             </div>
