@@ -11,8 +11,9 @@ rules_version = '2';
 //   - Only the owner can read/write supplier prices, import, delete items,
 //     manage staff.
 //   - Staff can read items, record IN/OUT, add new items, read history.
-//   - History ("movements") can be created but NEVER updated or deleted by
-//     anyone, including the owner.
+//   - History ("movements") can be created but NEVER edited by anyone. Only
+//     the owner can delete, and only entries older than 30 days (this is the
+//     "Purge old history" feature that frees storage).
 //   - Every stock change must come with a matching history entry in the same
 //     save, the numbers must add up, and stock can never go below zero.
 // =====================================================================
@@ -115,6 +116,12 @@ service cloud.firestore {
         && m.stockAfter == n.qty;
     }
 
+    function supplierTagsOnlyRemoved(n, o, changed) {
+      return !('bySupplier' in changed)
+        || (n.bySupplier.diff(o.bySupplier).addedKeys().size() == 0
+            && n.bySupplier.diff(o.bySupplier).changedKeys().size() == 0);
+    }
+
     // Any change to an item: a history entry saved in the same batch must
     // describe it, and the numbers must add up.
     function changeBound(itemId, n, o) {
@@ -132,12 +139,15 @@ service cloud.firestore {
               || (m.type == 'OUT' && n.qty >= 0 && math.abs(n.qty - (o.qty - m.qty)) < 0.0005)
             )
           )
-          // edit of details (owner only): quantity stays the same
+          // edit of details (owner only): quantity stays the same. The
+          // per-supplier breakdown may only LOSE entries here (used when a
+          // supplier is deleted); it can never gain or change an entry.
           || (
             isOwner()
             && m.type == 'EDIT'
-            && changed.hasOnly(['name', 'partNo', 'brand', 'model', 'unit', 'minQty', 'lastMoveId', 'updatedAt', 'updatedBy'])
+            && changed.hasOnly(['name', 'partNo', 'brand', 'model', 'unit', 'minQty', 'bySupplier', 'lastMoveId', 'updatedAt', 'updatedBy'])
             && n.qty == o.qty
+            && supplierTagsOnlyRemoved(n, o, changed)
           )
         );
     }
@@ -168,7 +178,9 @@ service cloud.firestore {
     }
 
     // --------------------------------------------------------- movements
-    // The audit trail. Create-only. update/delete are false for EVERYONE.
+    // The audit trail. Entries can never be edited. Only the OWNER can delete,
+    // and only entries older than 30 days (Purge old history). Current stock
+    // lives in /items and is not affected.
     function validMove(d) {
       return d.keys().hasOnly([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
@@ -205,7 +217,10 @@ service cloud.firestore {
 
     match /movements/{moveId} {
       allow read: if isMember();
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isOwner()
+        && resource.data.at is timestamp
+        && resource.data.at < request.time - duration.value(30, 'd');
 
       allow create: if isMember()
         && validMove(request.resource.data)

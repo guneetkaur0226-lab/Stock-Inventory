@@ -15,8 +15,11 @@ import {
   startAfter,
   setDoc,
   deleteDoc,
+  where,
+  Timestamp,
+  getCountFromServer,
 } from 'firebase/firestore';
-import { db } from './firebase.js';
+import { auth, db } from './firebase.js';
 import { INTEGER_UNITS, round3, clean, slug, priceId } from './lib/text.js';
 
 // ----------------------------------------------------------------- helpers
@@ -294,6 +297,40 @@ export function inviteStaff({ name, email }) {
   return setDoc(doc(db, 'invites', email.toLowerCase()), { name: clean(name, 80), role: 'staff', invitedAt: serverTimestamp() });
 }
 
+/**
+ * Asks the server (Vercel function /api/send-invite) to email the staff member
+ * the app link. The function re-checks that the caller is the owner.
+ * Resolves with { ok: true, appUrl }; rejects with an Error whose message is
+ * safe to show (and `appUrl`, when known, so the link can be shared by hand).
+ */
+export async function sendInviteEmail({ name, email }) {
+  const user = auth?.currentUser;
+  if (!user) throw new Error('You are signed out. Please sign in again.');
+  let res;
+  try {
+    const token = await user.getIdToken();
+    res = await fetch('/api/send-invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name, email }),
+    });
+  } catch {
+    throw new Error('Could not reach the server. Check your internet and try again.');
+  }
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    /* not JSON: e.g. running locally with "npm run dev", where /api does not exist */
+  }
+  if (!res.ok || !data.ok) {
+    const err = new Error(data.error || 'The email service is not available here. It works on the deployed Vercel site.');
+    err.appUrl = data.appUrl || '';
+    throw err;
+  }
+  return data;
+}
+
 export async function removeStaff({ uid, email }) {
   if (uid) await deleteDoc(doc(db, 'users', uid));
   await deleteDoc(doc(db, 'invites', email.toLowerCase()));
@@ -313,4 +350,114 @@ export async function fetchAllMovements(onProgress) {
     last = snap.docs[snap.docs.length - 1];
   }
   return out;
+}
+
+// ------------------------------------------------- delete a supplier (owner)
+/**
+ * Deletes a supplier WITHOUT deleting any stock.
+ *  1. Every stock item that lists this supplier gets the supplier tag removed
+ *     (only the `bySupplier.<name>` field; quantity is never touched, so the
+ *     quantity simply shows as "Other"). Each such item gets one EDIT history
+ *     entry so the change is visible in History.
+ *  2. The supplier's saved prices are deleted.
+ *  3. The supplier record is deleted.
+ * Steps are ordered so a failure part-way is safe to retry.
+ */
+export async function deleteSupplier({ name, docIds = [], items, prices, user, onProgress }) {
+  const target = slug(name);
+  const holders = [];
+  for (const item of items) {
+    const keys = Object.keys(item.bySupplier || {}).filter((k) => slug(k) === target);
+    if (keys.length) holders.push({ item, keys });
+  }
+  const myPrices = prices.filter((p) => slug(p.supplier) === target);
+  const total = holders.length + myPrices.length + 1;
+  let done = 0;
+
+  // 1) strip the supplier tag from stock items (8 per batch: the security rules
+  //    allow at most 20 document look-ups per batch, and each item needs 2)
+  for (const part of chunk(holders, 8)) {
+    const batch = writeBatch(db);
+    for (const { item, keys } of part) {
+      const moveRef = doc(collection(db, 'movements'));
+      const args = [];
+      keys.forEach((k) => args.push(new FieldPath('bySupplier', k), deleteField()));
+      args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
+      batch.update(doc(db, 'items', item.id), ...args);
+      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier "${name}" deleted: removed from this item (stock quantity unchanged)`, ''));
+    }
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, total);
+  }
+
+  // 2) the supplier's price list
+  for (const part of chunk(myPrices, 400)) {
+    const batch = writeBatch(db);
+    part.forEach((p) => batch.delete(doc(db, 'prices', p.id)));
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, total);
+  }
+
+  // 3) the supplier record(s) themselves
+  const ids = new Set([...docIds, target]);
+  const batch = writeBatch(db);
+  ids.forEach((id) => batch.delete(doc(db, 'suppliers', id)));
+  await batch.commit();
+  onProgress?.(total, total);
+  return { itemsUpdated: holders.length, pricesDeleted: myPrices.length };
+}
+
+// ------------------------------------------------ purge old history (owner)
+/** Entries newer than this many days can never be purged (also enforced in firestore.rules). */
+export const PURGE_MIN_DAYS = 30;
+
+/** How many history entries exist (optionally only those older than `olderThan`). Needs internet. */
+export async function countHistory(olderThan) {
+  const base = collection(db, 'movements');
+  const q = olderThan ? query(base, where('at', '<', Timestamp.fromDate(olderThan))) : query(base);
+  const snap = await getCountFromServer(q);
+  return snap.data().count;
+}
+
+/**
+ * Deletes history entries older than `olderThan`. Only the `movements`
+ * collection is touched: items (current stock), suppliers and prices are not.
+ * Ids in `keepIds` (each item's latest history entry) are skipped.
+ * Stops after about `maxDocs` deletions (free-plan daily limits); run again to continue.
+ */
+export async function purgeHistory({ olderThan, keepIds = new Set(), maxDocs = 5000, onProgress }) {
+  const newest = Date.now() - PURGE_MIN_DAYS * 86400000;
+  if (!(olderThan instanceof Date) || olderThan.getTime() > newest) throw new Error(`Only entries older than ${PURGE_MIN_DAYS} days can be deleted.`);
+  const cutoff = Timestamp.fromDate(olderThan);
+  const PAGE = 400;
+  let deleted = 0;
+  let kept = 0;
+  let cursor = null;
+  let more = false;
+  for (;;) {
+    const q = query(collection(db, 'movements'), where('at', '<', cutoff), orderBy('at', 'asc'), ...(cursor ? [startAfter(cursor)] : []), limit(PAGE));
+    const snap = await getDocs(q);
+    if (snap.empty) break;
+    const batch = writeBatch(db);
+    let n = 0;
+    for (const d of snap.docs) {
+      if (keepIds.has(d.id)) kept += 1;
+      else {
+        batch.delete(d.ref);
+        n += 1;
+      }
+    }
+    if (n) await batch.commit();
+    deleted += n;
+    onProgress?.(deleted);
+    cursor = snap.docs[snap.docs.length - 1];
+    if (snap.docs.length < PAGE) break;
+    if (deleted >= maxDocs) {
+      more = true;
+      break;
+    }
+  }
+  return { deleted, kept, more };
 }

@@ -107,7 +107,7 @@ export default function History() {
           )}
         </div>
       )}
-      <p className="tiny muted center">History is permanent: entries cannot be edited or deleted by anyone.</p>
+      <p className="tiny muted center">History cannot be edited. Only the owner can remove entries older than 30 days (More → Purge old history).</p>
     </>
   );
 }

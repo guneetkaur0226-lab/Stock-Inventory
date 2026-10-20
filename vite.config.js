@@ -28,7 +28,7 @@ export default defineConfig({
       workbox: {
         // App shell works offline. Data comes from Firestore's own offline cache.
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/__\//],
+        navigateFallbackDenylist: [/^\/__\//, /^\/api\//],
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },

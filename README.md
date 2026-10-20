@@ -19,12 +19,15 @@ npm test                 # importer + search self-tests
 | Collection | Who can read | Who can write |
 |---|---|---|
 | `items` (name, partNo, brand, model, qty, unit, minQty, `bySupplier` map) | owner, staff | staff/owner: only via IN/OUT/new (with history); owner: edit, delete, import |
-| `movements` (history) | owner, staff | create only; **never** update/delete |
-| `suppliers` (names + note) | owner, staff | owner |
+| `movements` (history) | owner, staff | create only; **never edited**; only the owner can delete entries older than 30 days (More → Purge old history) |
+| `suppliers` (names + note) | owner, staff | owner (create, edit, delete) |
 | `prices` (supplier price list) | **owner only** | owner |
 | `users`, `invites` | owner (+ own profile) | owner invites/removes |
 
 Each stock change is one atomic batch (item + history entry); the rules check the arithmetic, so stock cannot go below zero and history cannot be forged or skipped.
+
+## Staff invitation email
+"Send invite" saves the invite and then calls the Vercel function `api/send-invite.js`, which emails the app link. It needs these **server-side** Vercel environment variables (no `VITE_` prefix): `OWNER_EMAIL`, `APP_URL`, `SMTP_USER`, `SMTP_PASS` (see `.env.example`). It does not work under plain `npm run dev` (use `vercel dev`, or test on the deployed site). If the email cannot be sent the invite still works; the app shows the link so it can be shared by hand, and **Resend** is available on pending invites.
 
 ## Design notes / known limits
 * Owner is identified by the verified email in `firestore.rules` (no server code needed on the free plan).

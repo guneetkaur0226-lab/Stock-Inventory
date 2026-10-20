@@ -79,7 +79,18 @@ Your sheet's columns (one per supplier) are stored as "stock held from each supp
 3. The app icon appears on the home screen. Install it **while online once**; after that it opens offline too.
 
 ## Step 13 — Invite the 2 staff
-Owner: **More → Staff & invites** → type name + Gmail → **Send invite**. Staff open the app, sign in with **that same Gmail** → they are in. To remove someone: **Remove** (works immediately).
+Owner: **More → Staff & invites** → type name + Gmail → **Send invite**. The staff member gets an email with the app link. They open it, sign in with **that same Gmail** → they are in. If the email does not arrive, use **Resend** (or share the link yourself). To remove someone: **Remove** (works immediately).
+
+**One-time setup for the invitation email** (Vercel → Settings → Environment Variables, then Redeploy):
+
+| Name | Value |
+|---|---|
+| `OWNER_EMAIL` | the owner Gmail, same as in `firestore.rules`, all small letters |
+| `APP_URL` | your app address, e.g. `https://mayapuri-stock.vercel.app` (no slash at the end) |
+| `SMTP_USER` | the Gmail that sends the invitations (the owner Gmail is fine) |
+| `SMTP_PASS` | a Google **App password** for that Gmail: Google Account → Security → turn on 2-Step Verification → App passwords → create one (16 letters) |
+
+Never put `VITE_` in front of these. After changing `firestore.rules`, paste the whole file in Firebase → Firestore → Rules → **Publish** again.
 
 ---
 

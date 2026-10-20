@@ -50,3 +50,20 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 ## 9. Look and feel
 - [ ] More → Appearance: Light / Dark / Auto all readable.
 - [ ] Dates look like `19 Oct`, money like `₹1,25,000`.
+
+
+## 9. Purge old history (owner only)
+- [ ] Staff phone: More has **no** "Purge old history" row.
+- [ ] Owner: More → Purge old history shows total and "older than …" counts; **Delete old history** stays greyed out until you type PURGE.
+- [ ] Choosing 60 days with only recent test data shows 0 old entries (nothing can be deleted).
+- [ ] After a purge, the Stock tab and every quantity are unchanged; History only lost the old entries; each item still has its latest entry.
+- [ ] Rules Playground: delete `movements/<id>` as a staff user → **denied**; as owner on an entry newer than 30 days → **denied**.
+
+## 10. Suppliers: count and delete (owner)
+- [ ] A supplier that has stock items shows the right "N items" (not 0) and lists them when opened.
+- [ ] **Delete supplier** asks for confirmation naming the number of items and prices.
+- [ ] After deleting: the supplier is gone, its stock items still exist with the same quantity (shown as "Other"), its prices are gone, History shows an EDIT line per affected item.
+
+## 11. Invitation email
+- [ ] Owner: Staff & invites → Send invite → toast says the email was sent; the staff member receives a mail whose button opens the Vercel app address.
+- [ ] Pending invite → **Resend** sends it again. Staff phone cannot call the function (returns "Only the owner…").

@@ -1,14 +1,18 @@
 import { useDeferredValue, useMemo, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { deletePrice, savePrice, saveSupplier } from '../db.js';
-import { fmtDate, fmtINR } from '../lib/format.js';
+import { deletePrice, deleteSupplier, savePrice, saveSupplier } from '../db.js';
+import { fmtDate, fmtINR, fmtNum } from '../lib/format.js';
 import { UNITS, clean, norm, parseNumber, slug, squish, priceId } from '../lib/text.js';
 import { makeHaystack, matchesQuery } from '../lib/search.js';
 import { Empty, Field, Icon, Segmented, Sheet, Spinner, SuggestInput, useConfirm, useToast } from '../components/ui.jsx';
 
 export default function Suppliers() {
-  const { prices, pricesReady, suppliers, items } = useData();
+  const auth = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const { prices, pricesReady, suppliers, items, online } = useData();
+  const [deleting, setDeleting] = useState('');
   const [mode, setMode] = useState('supplier');
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q);
@@ -21,22 +25,65 @@ export default function Suppliers() {
     const m = new Map();
     suppliers.forEach((s) => m.set(slug(s.name), s.name));
     prices.forEach((p) => !m.has(slug(p.supplier)) && m.set(slug(p.supplier), p.supplier));
+    items.forEach((i) => Object.keys(i.bySupplier || {}).forEach((k) => !m.has(slug(k)) && m.set(slug(k), k)));
     return [...m.values()].sort((a, b) => a.localeCompare(b));
-  }, [suppliers, prices]);
+  }, [suppliers, prices, items]);
 
   const itemNames = useMemo(() => [...new Set([...prices.map((p) => p.item), ...items.map((i) => i.name)])].sort((a, b) => a.localeCompare(b)), [prices, items]);
 
   // ---- by supplier
   const bySupplier = useMemo(() => {
     const noteOf = new Map(suppliers.map((s) => [slug(s.name), s]));
+    // Stock items per supplier: an item belongs to a supplier when its
+    // per-supplier breakdown (bySupplier) has an entry for that supplier.
+    const stockOf = new Map();
+    for (const it of items) {
+      for (const [k, qty] of Object.entries(it.bySupplier || {})) {
+        const id = slug(k);
+        if (!stockOf.has(id)) stockOf.set(id, new Map());
+        stockOf.get(id).set(it.id, { item: it, qty: Number(qty) || 0 });
+      }
+    }
     return supplierNames
       .map((name) => ({
         name,
         dir: noteOf.get(slug(name)),
+        stock: [...(stockOf.get(slug(name))?.values() || [])].sort((a, b) => a.item.name.localeCompare(b.item.name)),
         rows: prices.filter((p) => slug(p.supplier) === slug(name)).sort((a, b) => a.item.localeCompare(b.item)),
       }))
       .filter((s) => !dq.trim() || matchesQuery(makeHaystack(s.name, s.dir?.note), dq));
-  }, [supplierNames, suppliers, prices, dq]);
+  }, [supplierNames, suppliers, prices, items, dq]);
+
+  async function removeSupplier(s) {
+    if (!auth.isOwner) return;
+    if (!online) {
+      toast('You are offline. Connect to the internet to delete a supplier.', 'err');
+      return;
+    }
+    const ok = await confirm({
+      title: `Delete supplier “${s.name}”?`,
+      message:
+        `${s.stock.length} stock item${s.stock.length === 1 ? '' : 's'} list this supplier. Those items and their quantities are KEPT; only the supplier name is removed from them (quantity then shows as “Other”). ` +
+        `${s.rows.length} saved price${s.rows.length === 1 ? '' : 's'} for this supplier will be deleted. Old history entries stay. This cannot be undone.`,
+      okText: 'Delete supplier',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeleting(s.name);
+    try {
+      const r = await deleteSupplier({
+        name: s.name,
+        docIds: suppliers.filter((x) => slug(x.name) === slug(s.name)).map((x) => x.id),
+        items,
+        prices,
+        user: { uid: auth.fbUser.uid, name: auth.name, email: auth.fbUser.email },
+      });
+      toast(`Supplier deleted. ${r.itemsUpdated} stock item${r.itemsUpdated === 1 ? '' : 's'} kept.`);
+    } catch (e) {
+      toast(`Could not delete supplier: ${e.message}. Nothing was lost; you can try again.`, 'err');
+    }
+    setDeleting('');
+  }
 
   // ---- compare by item
   const byItem = useMemo(() => {
@@ -99,10 +146,27 @@ export default function Suppliers() {
                       <div className="item-name">{s.name}</div>
                       <div className="item-sub">{s.dir?.note || 'No note'}</div>
                     </div>
-                    <span className="count">{s.rows.length} item{s.rows.length === 1 ? '' : 's'}</span>
+                    <span className="count">{s.stock.length} item{s.stock.length === 1 ? '' : 's'}</span>
                   </button>
                   {isOpen && (
                     <div className="card-body">
+                      {s.stock.length > 0 && (
+                        <div className="sup-stock">
+                          <div className="muted tiny">In stock from this supplier</div>
+                          {s.stock.slice(0, 50).map(({ item, qty }) => (
+                            <div className="sup-stock-line" key={item.id}>
+                              <span className="sup-stock-name">
+                                {item.name}
+                                {item.partNo ? <span className="muted"> · {item.partNo}</span> : null}
+                              </span>
+                              <b>
+                                {fmtNum(qty)} {item.unit}
+                              </b>
+                            </div>
+                          ))}
+                          {s.stock.length > 50 && <div className="muted tiny">…and {s.stock.length - 50} more items</div>}
+                        </div>
+                      )}
                       {s.rows.length === 0 && <p className="muted">No prices recorded for this supplier yet.</p>}
                       {s.rows.map((p) => (
                         <PriceLine key={p.id} p={p} onClick={() => setForm({ price: p })} />
@@ -115,6 +179,11 @@ export default function Suppliers() {
                           <Icon name="edit" size={18} /> Edit supplier
                         </button>
                       </div>
+                      {auth.isOwner && (
+                        <button className="btn danger-o" onClick={() => removeSupplier(s)} disabled={!!deleting}>
+                          <Icon name="trash" size={18} /> {deleting === s.name ? 'Deleting…' : 'Delete supplier'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </li>

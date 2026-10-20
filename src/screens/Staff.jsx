@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { useAuth } from '../auth.jsx';
-import { inviteStaff, removeStaff } from '../db.js';
+import { inviteStaff, removeStaff, sendInviteEmail } from '../db.js';
 import { Field, Icon, Spinner, useConfirm, useToast } from '../components/ui.jsx';
 import { fmtDate } from '../lib/format.js';
 import { clean } from '../lib/text.js';
@@ -27,6 +27,17 @@ export default function Staff() {
     };
   }, []);
 
+  // Emails the app link. The invite itself is already saved, so access works even if this fails.
+  async function emailInvite(nm, em, saved) {
+    try {
+      await sendInviteEmail({ name: nm, email: em });
+      toast(`${saved ? 'Invite saved and email' : 'Email'} sent to ${em}.`);
+    } catch (err) {
+      const link = err.appUrl || window.location.origin;
+      toast(`${saved ? `Invite saved for ${nm}, but the` : 'The'} email could not be sent: ${err.message} You can send them this link yourself: ${link}`, 'err', 14000);
+    }
+  }
+
   async function invite() {
     const e = {};
     const em = email.trim().toLowerCase();
@@ -41,12 +52,14 @@ export default function Staff() {
     setBusy(true);
     try {
       await inviteStaff({ name: nm, email: em });
-      toast(`Invited ${nm}. Ask them to sign in with ${em}.`);
       setName('');
       setEmail('');
     } catch (err) {
       toast(`Could not invite: ${err.message}`, 'err');
+      setBusy(false);
+      return;
     }
+    await emailInvite(nm, em, true);
     setBusy(false);
   }
 
@@ -107,7 +120,10 @@ export default function Staff() {
                 <b>{i.name}</b>
                 <div className="muted tiny">{i.email}</div>
               </div>
-              <button className="btn danger-o" onClick={() => remove({ ...i, uid: null })}>Cancel</button>
+              <div className="row gap">
+                <button className="btn" disabled={busy} onClick={async () => { setBusy(true); await emailInvite(i.name, i.email, false); setBusy(false); }}>Resend</button>
+                <button className="btn danger-o" onClick={() => remove({ ...i, uid: null })}>Cancel</button>
+              </div>
             </div>
           ))}
         </>

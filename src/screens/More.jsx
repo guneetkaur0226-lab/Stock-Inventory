@@ -6,6 +6,7 @@ import { Icon, Page, Segmented } from '../components/ui.jsx';
 import Staff from './Staff.jsx';
 import Import from './Import.jsx';
 import Export from './Export.jsx';
+import PurgeHistory from './PurgeHistory.jsx';
 
 export default function More() {
   const { isOwner, profile, fbUser, logout } = useAuth();
@@ -22,8 +23,8 @@ export default function More() {
   }, []);
 
   if (page) {
-    const titles = { staff: 'Staff & invites', import: 'Import from Excel / CSV', export: 'Export & template' };
-    const Body = { staff: Staff, import: Import, export: Export }[page];
+    const titles = { staff: 'Staff & invites', import: 'Import from Excel / CSV', export: 'Export & template', purge: 'Purge old history' };
+    const Body = { staff: Staff, import: Import, export: Export, purge: PurgeHistory }[page];
     return (
       <Page title={titles[page]} onBack={() => setPage(null)}>
         <Body />
@@ -57,6 +58,7 @@ export default function More() {
           <Row icon="user" title="Staff & invites" sub="Invite or remove staff" onClick={() => setPage('staff')} />
           <Row icon="upload" title="Import" sub="Stock, supplier prices, supplier names (.xlsx / .xls / .csv)" onClick={() => setPage('import')} />
           <Row icon="download" title="Export & template" sub="Stock, prices, history as CSV or Excel" onClick={() => setPage('export')} />
+          <Row icon="trash" title="Purge old history" sub="Free up storage by deleting old history (owner only)" onClick={() => setPage('purge')} />
         </div>
       )}
 

@@ -261,3 +261,8 @@ input[type='checkbox'] { width: 24px; min-height: 24px; height: 24px; accent-col
 .supcols { margin: 10px 0; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 code { background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px 6px; border-radius: 6px; }
+
+/* supplier card: stock items from this supplier */
+.sup-stock { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1.5px solid var(--line); }
+.sup-stock-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; }
+.sup-stock-name { overflow-wrap: anywhere; }
