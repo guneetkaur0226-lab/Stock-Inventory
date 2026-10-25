@@ -152,15 +152,13 @@ export default function Suppliers() {
                       <SupplierItem key={item.id} item={item} view={view} supplier={s.name} itemRows={rowsByItem.get(item.id) || []} />
                     ))}
                     {s.list.length > 60 && <div className="muted tiny">…and {s.list.length - 60} more items. Search to narrow the list.</div>}
+                    <button className="btn" onClick={() => setSupForm({ ...(s.dir || {}), id: s.dir?.id || slug(s.name), name: s.name })}>
+                      <Icon name="edit" size={18} /> Edit supplier
+                    </button>
                     {auth.isOwner && (
-                      <>
-                        <button className="btn" onClick={() => setSupForm({ ...(s.dir || {}), id: s.dir?.id || slug(s.name), name: s.name })}>
-                          <Icon name="edit" size={18} /> Edit supplier
-                        </button>
-                        <button className="btn danger-o" onClick={() => removeSupplier(s)} disabled={!!deleting}>
-                          <Icon name="trash" size={18} /> {deleting === s.name ? 'Deleting…' : 'Delete supplier'}
-                        </button>
-                      </>
+                      <button className="btn danger-o" onClick={() => removeSupplier(s)} disabled={!!deleting}>
+                        <Icon name="trash" size={18} /> {deleting === s.name ? 'Deleting…' : 'Delete supplier'}
+                      </button>
                     )}
                   </div>
                 )}
@@ -177,11 +175,9 @@ export default function Suppliers() {
         </ul>
       )}
 
-      {auth.isOwner && (
-        <button className="fab" onClick={() => setSupForm({})} aria-label="Add supplier">
-          <Icon name="plus" size={28} />
-        </button>
-      )}
+      <button className="fab" onClick={() => setSupForm({})} aria-label="Add supplier">
+        <Icon name="plus" size={28} />
+      </button>
 
       {supForm && <SupplierForm start={supForm} supplierNames={supplierNames} rowsByItem={rowsByItem} onClose={() => setSupForm(null)} />}
     </>
@@ -256,8 +252,7 @@ function LocationLine({ item, line, supplier, itemRows }) {
     toast(`${type} ${fmtNum(n)} ${item.unit} saved — ${placeText(line.location)} now ${fmtNum(after)}`);
   }
 
-  // Staff may move stock between locations; giving location-less stock its first location is the owner's job.
-  const canMove = line.qty > 0 && (hasLoc || auth.isOwner);
+  const canMove = line.qty > 0;
 
   return (
     <div className="ll">

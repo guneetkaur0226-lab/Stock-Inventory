@@ -1,3 +1,14 @@
+# Changes: Purge history can delete everything
+
+* **More → Purge old history**: new tick box **"Also delete each item's latest history entry"** (off by default) and a new range **"All history"**. With the box ticked nothing in the chosen range is kept. Stock, items and suppliers are never touched; stock changes keep working afterwards. No rules change needed (the owner could already delete any history entry).
+
+# Changes: History filters + staff access to Suppliers
+
+**Publish the updated `firestore.rules`.**
+
+* **History → Filters**: staff member, supplier, item, location (also matches where a move went), date (today / 7 / 30 days / custom range) plus the existing action buttons (IN / OUT / Moved) and search. All filters work together. The date range is applied by the server, so it reaches older entries. History records are never changed.
+* **Staff can use the Suppliers tab**: view and search, set/view locations and quantities, IN / OUT / Move, add and edit suppliers, change supplier-item-location links (staff can remove only empty, 0-quantity links). Staff still cannot delete suppliers, items or history, cannot purge history, and cannot change owner/admin settings (all enforced in `firestore.rules`). Prices stay owner-only.
+
 # Changes: Locations (Supplier → Item → Location → Quantity)
 
 **Publish the updated `firestore.rules` BEFORE (or together with) deploying the app.** No data migration is needed.

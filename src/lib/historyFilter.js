@@ -1,5 +1,6 @@
 // Pure helpers for the History screen filters (kept separate so they can be tested).
 import { makeHaystack, matchesQuery } from './search.js';
+import { locationText } from './locations.js';
 
 const DAY = 86400000;
 
@@ -32,12 +33,14 @@ export function resolveDateRange(kind, customFrom, customTo, now = new Date()) {
 }
 
 /** Client-side filters applied to the loaded history entries. */
-export function applyHistoryFilters(moves, { type = 'ALL', q = '', staff = '', supplier = '' } = {}) {
+export function applyHistoryFilters(moves, { type = 'ALL', q = '', staff = '', supplier = '', item = '', location = '' } = {}) {
   return moves.filter((m) => {
     if (type !== 'ALL' && m.type !== type) return false;
     if (staff && m.by !== staff) return false;
+    if (item && m.itemId !== item) return false;
     if (supplier && String(m.supplier || '').toLowerCase() !== supplier.toLowerCase()) return false;
+    if (location && m.location !== location && m.toLocation !== location) return false;
     if (!q.trim()) return true;
-    return matchesQuery(makeHaystack(m.itemName, m.partNo, m.note, m.byName, m.supplier, m.type), q);
+    return matchesQuery(makeHaystack(m.itemName, m.partNo, m.note, m.byName, m.supplier, m.type, locationText(m.location), locationText(m.toLocation)), q);
   });
 }

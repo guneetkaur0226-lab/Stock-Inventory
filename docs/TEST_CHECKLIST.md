@@ -10,7 +10,7 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] Item at or below its alert level (or 0) shows orange "Low stock / Out of stock" and appears under **Low / out**.
 
 ## 2. Staff are blocked from owner things
-- [ ] Staff phone has **no Suppliers tab**; More has **no Import / Export / Staff** rows; no Edit/Delete in an item.
+- [ ] Staff phone has the Suppliers tab (no Delete supplier button, no prices); More has **no Import / Export / Staff** rows; no Edit/Delete in an item.
 - [ ] *Server check:* in Firebase console → Firestore → **Rules → Rules playground**, simulate **get** on `/prices/test` signed in as a staff user → **Denied**. (Or: staff signed-in phone never shows prices.)
 - [ ] Staff cannot see "History CSV download".
 
@@ -77,3 +77,8 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] Search by supplier name and by item name; searched item shows both quantities.
 - [ ] Add supplier: name required; address/description optional; adding a duplicate name is refused.
 - [ ] Rules playground: staff update of `/locStock/x` without a matching movement → Denied.
+
+## History filters / staff on Suppliers
+- [ ] History → Filters: choose staff + supplier + item + location + custom dates together; only matching entries remain. Clear all filters restores the list.
+- [ ] Staff: Suppliers tab opens; can add/edit a supplier, set a location, IN / OUT / Move. No Delete supplier button.
+- [ ] Staff: Rules playground delete of `/suppliers/x`, `/items/x`, `/movements/x` → Denied. Delete of a `/locStock` row with quantity above 0 → Denied.

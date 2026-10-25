@@ -16,6 +16,7 @@ const RANGE_OPTIONS = [
   { value: 'o90', group: 'Old history (everything older than…)', label: 'Older than 90 days', kind: 'older', days: 90 },
   { value: 'o180', group: 'Old history (everything older than…)', label: 'Older than 6 months', kind: 'older', days: 180 },
   { value: 'o365', group: 'Old history (everything older than…)', label: 'Older than 1 year', kind: 'older', days: 365 },
+  { value: 'all', group: 'Everything', label: 'All history (every entry up to now)', kind: 'all' },
   { value: 'custom', group: 'Your own dates', label: 'Custom date range', kind: 'custom' },
 ];
 const GROUPS = [...new Set(RANGE_OPTIONS.map((o) => o.group))];
@@ -43,6 +44,7 @@ function resolveRange(choice, now, customFrom, customTo) {
     const to = new Date(now - opt.days * DAY);
     return { from: null, to, label: `before ${fmtDayTime(to)} (${opt.label.toLowerCase()})`, short: opt.label.toLowerCase(), recent: false };
   }
+  if (opt.kind === 'all') return { from: null, to: new Date(now), label: 'of ALL time (the complete history)', short: 'all history', recent: true };
   const f = dayStart(customFrom);
   const t = dayStart(customTo);
   if (!f || !t) return { error: 'Choose both a start date and an end date.' };
@@ -72,8 +74,9 @@ export default function PurgeHistory() {
   const range = useMemo(() => resolveRange(choice, Date.now(), customFrom, customTo), [choice, customFrom, customTo, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   const fromMs = range.from ? range.from.getTime() : 0;
   const toMs = range.to ? range.to.getTime() : 0;
-  // Each item's latest history entry is always kept.
-  const keepIds = useMemo(() => new Set(items.map((i) => i.lastMoveId).filter(Boolean)), [items]);
+  // By default each item's latest history entry is kept. Tick the box to delete those too.
+  const [includeLatest, setIncludeLatest] = useState(false);
+  const keepIds = useMemo(() => (includeLatest ? new Set() : new Set(items.map((i) => i.lastMoveId).filter(Boolean))), [items, includeLatest]);
 
   useEffect(() => {
     if (!isOwner || !online) return undefined;
@@ -109,7 +112,7 @@ export default function PurgeHistory() {
     const n = counts?.old || 0;
     const ok = await confirm({
       title: 'Delete history?',
-      message: `Up to ${n} history entries ${range.label} will be permanently deleted. Each item’s latest history entry is kept. Your stock, items, suppliers and prices are NOT touched. This cannot be undone.`,
+      message: `Up to ${n} history entries ${range.label} will be permanently deleted. ${includeLatest ? 'This INCLUDES each item’s latest history entry, so nothing in the range is kept.' : 'Each item’s latest history entry is kept.'} Your stock, items, suppliers and prices are NOT touched. This cannot be undone.`,
       okText: 'Delete history',
       danger: true,
     });
@@ -135,7 +138,7 @@ export default function PurgeHistory() {
         <b>Free up storage</b>
         <p className="muted tiny">
           Deletes only <b>history entries</b> (the log in the History tab) inside the time range you choose. Your <b>current stock, items, suppliers and prices are never touched</b>.
-          Each item’s most recent history entry is always kept, so every item still shows its last change.
+          By default each item’s most recent history entry is kept, so every item still shows its last change. You can switch that off below to delete the complete history.
         </p>
       </div>
 
@@ -190,6 +193,10 @@ export default function PurgeHistory() {
           </p>
         )}
 
+        <label className="check">
+          <input type="checkbox" checked={includeLatest} onChange={(e) => { setIncludeLatest(e.target.checked); setTyped(''); }} disabled={!!busy} />
+          <span>Also delete each item’s latest history entry (delete everything in the range)</span>
+        </label>
         <Field label={`Type ${WORD} to unlock`} htmlFor="purge-word">
           <input id="purge-word" value={typed} onChange={(e) => setTyped(e.target.value)} autoCapitalize="characters" autoComplete="off" disabled={!!busy} />
         </Field>

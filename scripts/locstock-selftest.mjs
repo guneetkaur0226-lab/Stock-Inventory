@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { LOCATION_VALUES } from '../src/lib/locations.js';
 import { locDocId, supplierItemView, unlocated, isAssociated, groupByItem } from '../src/lib/stockLoc.js';
 import { validateLocMove, planOutAny } from '../src/lib/moveRules.js';
+import { applyHistoryFilters, resolveDateRange } from '../src/lib/historyFilter.js';
 
 // 1) the location list in the app and in firestore.rules must be identical
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -60,4 +61,23 @@ bad(validateLocMove(item, mine, { type: 'MOVE', qty: 11, supplier: 'Arjun', loca
 assert.deepEqual(planOutAny(item, mine, 10), {}); // the 10 unassigned units go first
 assert.deepEqual(planOutAny(item, mine, 20), { Arjun: 20 }); // then Arjun's stock that has no location
 assert.equal(planOutAny(item, mine, 21), null); // the rest sits at locations -> must choose one
+
+// 7) history filters work together
+const G = 'Godown > Ground Floor', W = 'Mayapuri Shop > W-82/2';
+const hist = [
+  { id: 1, type: 'IN', by: 'u1', byName: 'Ravi', supplier: 'Arjun', itemId: 'i1', itemName: 'Silencer', location: G },
+  { id: 2, type: 'OUT', by: 'u2', byName: 'Sam', supplier: 'Arjun', itemId: 'i1', itemName: 'Silencer', location: G },
+  { id: 3, type: 'MOVE', by: 'u1', byName: 'Ravi', supplier: 'Arjun', itemId: 'i1', itemName: 'Silencer', location: G, toLocation: W },
+  { id: 4, type: 'IN', by: 'u1', byName: 'Ravi', supplier: 'Bobby', itemId: 'i2', itemName: 'Gasket', location: W },
+];
+const hids = (f) => applyHistoryFilters(hist, f).map((m) => m.id);
+assert.deepEqual(hids({ staff: 'u1' }), [1, 3, 4]);
+assert.deepEqual(hids({ staff: 'u1', supplier: 'arjun' }), [1, 3]);
+assert.deepEqual(hids({ staff: 'u1', supplier: 'Arjun', item: 'i1', location: W }), [3]); // location matches the destination of a move too
+assert.deepEqual(hids({ staff: 'u1', supplier: 'Arjun', item: 'i1', location: G, type: 'IN' }), [1]);
+assert.deepEqual(hids({ type: 'OUT', staff: 'u1' }), []);
+assert.deepEqual(hids({ q: 'gasket', location: W }), [4]);
+const r = resolveDateRange('custom', '2026-10-01', '2026-10-05');
+assert.equal(r.to.getDate(), 6); // end date is included
+assert.ok(resolveDateRange('custom', '2026-10-05', '2026-10-01').error);
 console.log('LOCATION SELF-TESTS PASSED');

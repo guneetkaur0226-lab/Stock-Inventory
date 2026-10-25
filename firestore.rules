@@ -232,9 +232,7 @@ service cloud.firestore {
         && (d.type != 'MOVE'
             || ('location' in d && 'toLocation' in d
                 && d.supplier.size() > 0
-                && d.toLocation != d.location
-                // giving location-less stock its first location is an owner job
-                && (d.location != '' || isOwner())));
+                && d.toLocation != d.location));
     }
 
     function moveBound(moveId, d) {
@@ -266,10 +264,11 @@ service cloud.firestore {
 
     // ---------------------------------------------------------- suppliers
     // Supplier NAMES (no prices). Everyone signed in can read, so staff can
-    // pick a supplier when recording stock IN. Only the owner can change.
+    // pick a supplier when recording stock IN. Staff and owner can add / edit
+    // suppliers; only the owner can delete one.
     match /suppliers/{sid} {
       allow read: if isMember();
-      allow create, update: if isOwner()
+      allow create, update: if isMember()
         && request.resource.data.keys().hasOnly(['name', 'note', 'address', 'updatedAt'])
         && request.resource.data.keys().hasAll(['name', 'note', 'updatedAt'])
         && isStr(request.resource.data.name, 80) && request.resource.data.name.size() > 0
@@ -281,8 +280,8 @@ service cloud.firestore {
     // ----------------------------------------------------------- locStock
     // Quantity of one Supplier + Item + Location (never stored on the item).
     // Every change must come with an IN / OUT / MOVE (or NEW) history entry saved in
-    // the same batch, and the number must add up from the old value. The owner can
-    // also create an empty (0) slot when choosing locations for a supplier.
+    // the same batch, and the number must add up from the old value. Staff and
+    // owner can also create an empty (0) slot when choosing locations for a supplier.
     function validLoc(d) {
       return d.keys().hasOnly(['itemId', 'supplier', 'location', 'qty', 'lastMoveId', 'updatedAt', 'updatedBy'])
         && d.keys().hasAll(['itemId', 'supplier', 'location', 'qty', 'lastMoveId', 'updatedAt', 'updatedBy'])
@@ -314,7 +313,7 @@ service cloud.firestore {
       allow create: if isMember()
         && validLoc(request.resource.data)
         && (
-          (isOwner() && request.resource.data.qty == 0 && request.resource.data.lastMoveId == '')
+          (request.resource.data.qty == 0 && request.resource.data.lastMoveId == '')
           || (request.resource.data.lastMoveId.size() > 0 && locBound(request.resource.data, 0))
         );
 
@@ -327,8 +326,10 @@ service cloud.firestore {
         && request.resource.data.lastMoveId.size() > 0
         && locBound(request.resource.data, resource.data.qty);
 
-      // Owner only: removing an empty slot, deleting a supplier or an item.
-      allow delete: if isOwner();
+      // Staff may remove an EMPTY (0) slot (changing a supplier's item/location
+      // links); only the owner can delete rows that hold stock (deleting a
+      // supplier or an item).
+      allow delete: if isOwner() || (isMember() && resource.data.qty == 0);
     }
 
     // ------------------------------------------------------------- prices
