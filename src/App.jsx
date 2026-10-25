@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { DataProvider, useData } from './store.jsx';
 import { configured } from './firebase.js';
@@ -33,9 +33,35 @@ function SetupNeeded() {
   );
 }
 
+// Shows "Starting…" and, if it takes unusually long, a way out instead of waiting forever.
+function Starting() {
+  const { logout, fbUser } = useAuth();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 12000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <>
+      <Spinner label="Starting…" />
+      {slow && (
+        <div className="login">
+          <p className="muted">This is taking longer than usual. Check your internet connection, then try again.</p>
+          <button className="btn big" onClick={() => window.location.reload()}>Try again</button>
+          {fbUser && (
+            <button className="btn big" onClick={logout}>
+              Sign out
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function Gate() {
   const { status, logout, fbUser, error } = useAuth();
-  if (status === 'loading') return <Spinner label="Starting…" />;
+  if (status === 'loading') return <Starting />;
   if (status === 'signedOut') return <Login />;
   if (status === 'noAccess') {
     return (

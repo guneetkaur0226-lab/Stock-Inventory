@@ -32,12 +32,16 @@ async function register(user) {
   // (never "staff"), everyone else only asks for "staff"; if the owner e-mail is not known
   // to the app, "owner" is tried first so the owner can never end up saved as staff.
   const roles = isOwnerUser(user) ? ['owner'] : OWNER_EMAIL ? ['staff'] : ['owner', 'staff'];
-  for (const role of roles) {
-    try {
-      await setDoc(doc(db, 'users', user.uid), { email, name, role, createdAt: serverTimestamp() });
-      return true;
-    } catch (e) {
-      if (e.code !== 'permission-denied') throw e;
+  // One short retry: a brand-new invite or sign-in can take a moment to be recognised by the server.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 1500));
+    for (const role of roles) {
+      try {
+        await setDoc(doc(db, 'users', user.uid), { email, name, role, createdAt: serverTimestamp() });
+        return true;
+      } catch (e) {
+        if (e.code !== 'permission-denied') throw e;
+      }
     }
   }
   return false;
@@ -107,6 +111,9 @@ export function AuthProvider({ children }) {
     let repaired = false;
     const unsub = onSnapshot(
       doc(db, 'users', uid),
+      // includeMetadataChanges: a first answer from the phone's cache ("no profile") is followed by the
+      // server's answer even when that answer is the same. Without this the app could wait forever.
+      { includeMetadataChanges: true },
       (snap) => {
         if (snap.exists()) {
           const d = snap.data();
@@ -133,7 +140,10 @@ export function AuthProvider({ children }) {
             registering = false;
           });
       },
-      (e) => setError(friendlyAuthError(e))
+      (e) => {
+        setError(friendlyAuthError(e));
+        setDenied(true); // never leave the person on the loading screen
+      }
     );
     return unsub;
   }, [uid]);
@@ -192,8 +202,8 @@ export function AuthProvider({ children }) {
     let status = 'loading';
     if (fbUser === null) status = 'signedOut';
     else if (fbUser && ownerByEmail) status = 'ready';
-    else if (fbUser && denied) status = 'noAccess';
     else if (fbUser && effectiveProfile) status = 'ready';
+    else if (fbUser && denied) status = 'noAccess';
     const role = effectiveProfile?.role;
     return {
       status,

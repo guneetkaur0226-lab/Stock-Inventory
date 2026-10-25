@@ -1,3 +1,9 @@
+# Changes: staff login fixes
+
+* **Stuck on "Starting…"**: the profile listener now also hears the server's confirmation when the phone's cache says "no profile yet" (`includeMetadataChanges`), retries the profile creation once, and a listener error shows the "No access" screen with the reason instead of loading forever. If loading takes over 12 seconds, a *Try again* / *Sign out* screen appears.
+* **Flicker between "No access" and Home**: once a profile exists it always wins over an earlier "denied" state.
+* No rules change needed.
+
 # Changes: Purge history can delete everything
 
 * **More → Purge old history**: new tick box **"Also delete each item's latest history entry"** (off by default) and a new range **"All history"**. With the box ticked nothing in the chosen range is kept. Stock, items and suppliers are never touched; stock changes keep working afterwards. No rules change needed (the owner could already delete any history entry).
