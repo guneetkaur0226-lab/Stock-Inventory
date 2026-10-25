@@ -15,6 +15,8 @@ rules_version = '2';
 //     the owner can delete (the "Purge history" feature that frees storage).
 //   - Every stock change must come with a matching history entry in the same
 //     save, the numbers must add up, and stock can never go below zero.
+//   - Stock per Supplier + Item + Location lives in "locStock"; every change
+//     to it must come with a matching IN / OUT / MOVE history entry too.
 // =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -43,6 +45,20 @@ service cloud.firestore {
     function isStr(v, max) { return v is string && v.size() <= max; }
     function isNum(v) { return v is number; }
     function validUnit(u) { return u in ['pcs', 'set', 'kg', 'm', 'box']; }
+
+    // Same list as src/lib/locations.js (scripts/locstock-selftest.mjs checks both match).
+    function validLocation(v) {
+      return v in [
+        'Godown > Ground Floor',
+        'Godown > First Floor > Back Office Room',
+        'Godown > First Floor > Lobby',
+        'Godown > Back Gali Shop',
+        'Mayapuri Shop > W-82/2',
+        'Mayapuri Shop > W-82/3',
+        'Mayapuri Shop > W-82/3 Upper Ground',
+        'Mayapuri Shop > W-82/4'
+      ];
+    }
 
     // ------------------------------------------------------------- users
     match /users/{uid} {
@@ -148,6 +164,14 @@ service cloud.firestore {
             && n.qty == o.qty
             && supplierTagsOnlyRemoved(n, o, changed)
           )
+          // moving stock between locations (staff or owner): the item's total
+          // does not change, only the history link does
+          || (
+            m.type == 'MOVE'
+            && m.qty > 0
+            && changed.hasOnly(['lastMoveId', 'updatedAt', 'updatedBy'])
+            && n.qty == o.qty
+          )
         );
     }
 
@@ -183,7 +207,7 @@ service cloud.firestore {
     function validMove(d) {
       return d.keys().hasOnly([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
-          'note', 'supplier', 'by', 'byName', 'at'
+          'note', 'supplier', 'by', 'byName', 'at', 'location', 'toLocation'
         ])
         && d.keys().hasAll([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
@@ -192,7 +216,7 @@ service cloud.firestore {
         && isStr(d.itemId, 40) && d.itemId.size() > 0
         && isStr(d.itemName, 120)
         && isStr(d.partNo, 60)
-        && d.type in ['IN', 'OUT', 'NEW', 'EDIT', 'DELETE']
+        && d.type in ['IN', 'OUT', 'NEW', 'EDIT', 'DELETE', 'MOVE']
         && isNum(d.qty) && d.qty >= 0 && d.qty <= 10000000
         && isNum(d.stockAfter) && d.stockAfter >= 0 && d.stockAfter <= 10000000
         && validUnit(d.unit)
@@ -200,7 +224,17 @@ service cloud.firestore {
         && isStr(d.supplier, 80)
         && isStr(d.byName, 80)
         && d.by == request.auth.uid
-        && d.at == request.time;
+        && d.at == request.time
+        // optional location (where the stock is / was taken from) and, for a MOVE, where it went
+        && (!('location' in d) || (isStr(d.location, 80) && (d.location == '' || validLocation(d.location))))
+        && (!('location' in d) || d.location == '' || d.supplier.size() > 0)
+        && (!('toLocation' in d) || (d.type == 'MOVE' && validLocation(d.toLocation)))
+        && (d.type != 'MOVE'
+            || ('location' in d && 'toLocation' in d
+                && d.supplier.size() > 0
+                && d.toLocation != d.location
+                // giving location-less stock its first location is an owner job
+                && (d.location != '' || isOwner())));
     }
 
     function moveBound(moveId, d) {
@@ -236,9 +270,64 @@ service cloud.firestore {
     match /suppliers/{sid} {
       allow read: if isMember();
       allow create, update: if isOwner()
-        && request.resource.data.keys().hasOnly(['name', 'note', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'note', 'address', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['name', 'note', 'updatedAt'])
         && isStr(request.resource.data.name, 80) && request.resource.data.name.size() > 0
-        && isStr(request.resource.data.note, 200);
+        && isStr(request.resource.data.note, 500)
+        && (!('address' in request.resource.data) || isStr(request.resource.data.address, 300));
+      allow delete: if isOwner();
+    }
+
+    // ----------------------------------------------------------- locStock
+    // Quantity of one Supplier + Item + Location (never stored on the item).
+    // Every change must come with an IN / OUT / MOVE (or NEW) history entry saved in
+    // the same batch, and the number must add up from the old value. The owner can
+    // also create an empty (0) slot when choosing locations for a supplier.
+    function validLoc(d) {
+      return d.keys().hasOnly(['itemId', 'supplier', 'location', 'qty', 'lastMoveId', 'updatedAt', 'updatedBy'])
+        && d.keys().hasAll(['itemId', 'supplier', 'location', 'qty', 'lastMoveId', 'updatedAt', 'updatedBy'])
+        && isStr(d.itemId, 40) && d.itemId.size() > 0
+        && isStr(d.supplier, 80) && d.supplier.size() > 0
+        && validLocation(d.location)
+        && isNum(d.qty) && d.qty >= 0 && d.qty <= 10000000
+        && isStr(d.lastMoveId, 40)
+        && d.updatedAt == request.time
+        && d.updatedBy == request.auth.uid;
+    }
+
+    function locBound(d, oldQty) {
+      let m = getAfter(movePathFor(d.lastMoveId)).data;
+      return m.itemId == d.itemId && m.supplier == d.supplier && m.by == request.auth.uid
+        && (
+          (m.type in ['IN', 'NEW'] && m.location == d.location && math.abs(d.qty - (oldQty + m.qty)) < 0.0005)
+          || (m.type == 'OUT' && m.location == d.location && math.abs(d.qty - (oldQty - m.qty)) < 0.0005)
+          || (m.type == 'MOVE' && (
+                (m.location == d.location && math.abs(d.qty - (oldQty - m.qty)) < 0.0005)
+                || (m.toLocation == d.location && math.abs(d.qty - (oldQty + m.qty)) < 0.0005)
+             ))
+        );
+    }
+
+    match /locStock/{lid} {
+      allow read: if isMember();
+
+      allow create: if isMember()
+        && validLoc(request.resource.data)
+        && (
+          (isOwner() && request.resource.data.qty == 0 && request.resource.data.lastMoveId == '')
+          || (request.resource.data.lastMoveId.size() > 0 && locBound(request.resource.data, 0))
+        );
+
+      allow update: if isMember()
+        && validLoc(request.resource.data)
+        && request.resource.data.itemId == resource.data.itemId
+        && request.resource.data.supplier == resource.data.supplier
+        && request.resource.data.location == resource.data.location
+        && request.resource.data.lastMoveId != resource.data.lastMoveId
+        && request.resource.data.lastMoveId.size() > 0
+        && locBound(request.resource.data, resource.data.qty);
+
+      // Owner only: removing an empty slot, deleting a supplier or an item.
       allow delete: if isOwner();
     }
 

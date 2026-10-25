@@ -1,10 +1,11 @@
 // Builds rows whose headings match what the importer reads.
 import { fmtDateFull, fmtTime } from './format.js';
 import { buckets } from '../db.js';
+import { locationText } from './locations.js';
 
 export const STOCK_HEAD = ['Name', 'Part No', 'Brand', 'Model', 'Qty', 'Unit', 'Min Stock'];
 export const PRICE_HEAD = ['Supplier', 'Item', 'Part No', 'Price', 'Unit', 'Note', 'Last Updated', 'Previous Price'];
-export const HISTORY_HEAD = ['Date', 'Time', 'Type', 'Item', 'Part No', 'Qty', 'Unit', 'Stock After', 'Supplier', 'Note', 'By'];
+export const HISTORY_HEAD = ['Date', 'Time', 'Type', 'Item', 'Part No', 'Qty', 'Unit', 'Stock After', 'Supplier', 'Note', 'By', 'Location'];
 
 export function stockRows(items) {
   const sup = new Set();
@@ -34,7 +35,7 @@ export function historyRows(moves) {
     HISTORY_HEAD,
     ...moves.map((m) => {
       const d = m.at?.toDate?.();
-      return [fmtDateFull(d), fmtTime(d), m.type, m.itemName, m.partNo, m.qty, m.unit, m.stockAfter, m.supplier, m.note, m.byName];
+      return [fmtDateFull(d), fmtTime(d), m.type, m.itemName, m.partNo, m.qty, m.unit, m.stockAfter, m.supplier, m.note, m.byName, m.type === 'MOVE' ? `${locationText(m.location) || 'No location set'} → ${locationText(m.toLocation)}` : locationText(m.location)];
     }),
   ];
 }

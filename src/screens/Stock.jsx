@@ -6,6 +6,9 @@ import { useData } from '../store.jsx';
 import { searchItems } from '../lib/search.js';
 import { fmtNum } from '../lib/format.js';
 import { parseNumber } from '../lib/text.js';
+import { locationText } from '../lib/locations.js';
+import { rowsForSupplier, unlocated } from '../lib/stockLoc.js';
+import LocationSelect from '../components/LocationSelect.jsx';
 import { addItem, buckets, deleteItem, editItem, recordStock, validateMove } from '../db.js';
 import { Empty, Field, Icon, Segmented, Sheet, Spinner, SuggestInput, useConfirm, useToast } from '../components/ui.jsx';
 import MoveRow from '../components/MoveRow.jsx';
@@ -138,7 +141,7 @@ function AddSheet({ onClose }) {
         items={items}
         supplierNames={supplierNames}
         onSubmit={(d) => {
-          addItem({ data: d, supplier: d.supplier, note: d.note, user: userOf(auth) }).catch((e) =>
+          addItem({ data: d, supplier: d.supplier, location: d.location, note: d.note, user: userOf(auth) }).catch((e) =>
             toast(`"${d.name}" could not be saved: ${e.code === 'permission-denied' ? 'not allowed by the server' : e.message}`, 'err')
           );
           toast(`Added "${d.name}"`);
@@ -153,9 +156,11 @@ function ItemSheet({ item, onClose }) {
   const auth = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
-  const { items } = useData();
+  const { items, locStock } = useData();
+  const itemRows = useMemo(() => locStock.filter((r) => r.itemId === item.id), [locStock, item.id]);
   const supplierNames = useSupplierNames();
   const [view, setView] = useState('move'); // move | edit
+  const [location, setLocation] = useState('');
   const [type, setType] = useState('OUT');
   const [qtyText, setQtyText] = useState('1');
   const [supplier, setSupplier] = useState('');
@@ -180,7 +185,10 @@ function ItemSheet({ item, onClose }) {
     );
   }, [item.id]);
 
-  useEffect(() => setSupplier(''), [type]);
+  useEffect(() => {
+    setSupplier('');
+    setLocation('');
+  }, [type]);
 
   const qty = parseNumber(qtyText);
   const bump = (d) => {
@@ -191,10 +199,10 @@ function ItemSheet({ item, onClose }) {
 
   function save() {
     const n = Number.isFinite(qty) ? qty : NaN;
-    const err = validateMove(item, type, n, supplier);
+    const err = validateMove(item, type, n, supplier, location, itemRows);
     if (err) return setError(err);
     try {
-      recordStock({ item, type, qty: n, supplier, note, user: userOf(auth) }).catch((e) =>
+      recordStock({ item, type, qty: n, supplier, location, itemRows, note, user: userOf(auth) }).catch((e) =>
         toast(
           e.code === 'permission-denied'
             ? `NOT SAVED: ${type} ${n} ${item.unit} of "${item.name}". Stock changed on another phone meanwhile — open the item and try again.`
@@ -218,7 +226,7 @@ function ItemSheet({ item, onClose }) {
       danger: true,
     });
     if (!ok) return;
-    deleteItem({ item, user: userOf(auth) }).catch((e) => toast(`Not deleted: ${e.message}`, 'err'));
+    deleteItem({ item, itemRows, user: userOf(auth) }).catch((e) => toast(`Not deleted: ${e.message}`, 'err'));
     toast('Item deleted');
     onClose();
   }
@@ -245,12 +253,17 @@ function ItemSheet({ item, onClose }) {
     );
   }
 
-  const outOptions = [
-    { v: '', l: `Any / not sure` },
-    ...Object.entries(by)
-      .filter(([, v]) => v > 0)
-      .map(([k, v]) => ({ v: k, l: `${k} (${fmtNum(v)})` })),
-  ];
+  // Where OUT can take stock from: each supplier + location that still has stock.
+  const outOptions = [{ s: '', l: '', label: 'Any / not sure' }];
+  Object.entries(by)
+    .filter(([, v]) => v > 0)
+    .forEach(([k]) => {
+      const mine = rowsForSupplier(itemRows, k).filter((r) => r.qty > 0);
+      mine.forEach((r) => outOptions.push({ s: k, l: r.location, label: `${k} · ${locationText(r.location)} (${fmtNum(r.qty)})` }));
+      const rest = unlocated(item, itemRows, k);
+      if (rest > 0) outOptions.push({ s: k, l: '', label: mine.length ? `${k} · No location set (${fmtNum(rest)})` : `${k} (${fmtNum(rest)})` });
+    });
+  const outIdx = Math.max(0, outOptions.findIndex((o) => o.s === supplier && o.l === location));
 
   return (
     <Sheet title={item.name} onClose={onClose} tall>
@@ -323,16 +336,42 @@ function ItemSheet({ item, onClose }) {
       </Field>
 
       {type === 'IN' ? (
-        <Field label="From supplier (optional)" htmlFor="m-sup">
-          <SuggestInput id="m-sup" value={supplier} onChange={setSupplier} options={supplierNames} maxLength={80} placeholder="Type or pick a supplier" />
-        </Field>
+        <>
+          <Field label="From supplier (optional)" htmlFor="m-sup">
+            <SuggestInput
+              id="m-sup"
+              value={supplier}
+              onChange={(v) => {
+                setSupplier(v);
+                if (!v.trim()) setLocation('');
+              }}
+              options={supplierNames}
+              maxLength={80}
+              placeholder="Type or pick a supplier"
+            />
+          </Field>
+          {supplier.trim() && (
+            <Field label="Store at location (optional)" htmlFor="m-loc">
+              <LocationSelect id="m-loc" value={location} onChange={(v) => { setLocation(v); setError(''); }} blank="No location set" />
+            </Field>
+          )}
+        </>
       ) : (
         outOptions.length > 1 && (
           <Field label="Taken from (optional)" htmlFor="m-from">
-            <select id="m-from" value={supplier} onChange={(e) => setSupplier(e.target.value)}>
-              {outOptions.map((o) => (
-                <option key={o.v} value={o.v}>
-                  {o.l}
+            <select
+              id="m-from"
+              value={outIdx}
+              onChange={(e) => {
+                const o = outOptions[Number(e.target.value)];
+                setSupplier(o.s);
+                setLocation(o.l);
+                setError('');
+              }}
+            >
+              {outOptions.map((o, i) => (
+                <option key={i} value={i}>
+                  {o.label}
                 </option>
               ))}
             </select>

@@ -6,11 +6,12 @@ import { useToast, Icon, Empty, Spinner } from '../components/ui.jsx';
 import MoveRow from '../components/MoveRow.jsx';
 import { makeHaystack, matchesQuery } from '../lib/search.js';
 import { fmtDate } from '../lib/format.js';
+import { locationText } from '../lib/locations.js';
 import { fetchAllMovements } from '../db.js';
 import { downloadCsv } from '../lib/csv.js';
 import { historyRows } from '../lib/exporter.js';
 
-const TYPES = ['ALL', 'IN', 'OUT', 'NEW', 'EDIT', 'DELETE'];
+const TYPES = ['ALL', 'IN', 'OUT', 'MOVE', 'NEW', 'EDIT', 'DELETE'];
 
 export default function History() {
   const { isOwner } = useAuth();
@@ -41,7 +42,7 @@ export default function History() {
     return moves.filter((m) => {
       if (type !== 'ALL' && m.type !== type) return false;
       if (!dq.trim()) return true;
-      return matchesQuery(makeHaystack(m.itemName, m.partNo, m.note, m.byName, m.supplier, m.type), dq);
+      return matchesQuery(makeHaystack(m.itemName, m.partNo, m.note, m.byName, m.supplier, m.type, locationText(m.location), locationText(m.toLocation)), dq);
     });
   }, [moves, dq, type]);
 
@@ -73,7 +74,7 @@ export default function History() {
       <div className="chips">
         {TYPES.map((t) => (
           <button key={t} className={`chip ${type === t ? 'on' : ''}`} onClick={() => setType(t)}>
-            {t === 'ALL' ? 'Everything' : t === 'DELETE' ? 'Deleted' : t}
+            {t === 'ALL' ? 'Everything' : t === 'DELETE' ? 'Deleted' : t === 'MOVE' ? 'Moved' : t}
           </button>
         ))}
       </div>

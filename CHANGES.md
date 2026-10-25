@@ -1,3 +1,17 @@
+# Changes: Locations (Supplier → Item → Location → Quantity)
+
+**Publish the updated `firestore.rules` BEFORE (or together with) deploying the app.** No data migration is needed.
+
+* **New collection `locStock`**: one small document per Supplier + Item + Location holding its quantity. Location is never stored on the item. Items keep their total `qty` and `bySupplier` exactly as before, so all existing data works unchanged. Stock a supplier already holds with no location shows as **"No location set"** until it is given a location (Suppliers tab → *Set location*, owner only).
+* **Locations**: the 8 predefined Godown / Mayapuri Shop locations (`src/lib/locations.js`, same list in `firestore.rules`).
+* **Suppliers tab** (`src/screens/Suppliers.jsx`): Item → Location → Quantity → IN / OUT (− / + or typed quantity) per row; each row updates only its own Supplier + Item + Location quantity and writes a History entry. *Add price* and *Compare by item* removed. Every item shows **Supplier Stock** and **Total Item Stock**. Search matches supplier name or item name.
+* **Add / edit supplier**: name required; address and description optional; pick existing items, each with one or more locations. Quantities are added with IN / OUT so History explains them. The supplier name is still read-only when editing.
+* **Move** (new history type "MOVED"): move quantity between locations; total stock does not change.
+* **Stock tab**: IN can store at a location when a supplier is chosen; OUT "Taken from" lists supplier + location. "Any / not sure" only takes stock that is not tied to a location. New item form has an optional location for opening stock.
+* Deleting an item or supplier also removes its location rows (item totals are kept for suppliers, as before). History CSV has a new last column, Location.
+* Old prices data, price import/export and the Prices collection are untouched (only the Suppliers-tab screens were removed).
+* `npm test` also runs `scripts/locstock-selftest.mjs`.
+
 # Changes in the latest update
 
 * **Owner/Staff switching fixed** (`src/auth.jsx`, `src/lib/owner.js`, `vite.config.js`): the Owner view is decided from the verified sign-in email compared with `OWNER_EMAIL` (read at build time), not from a saved database record, so it cannot flip. The owner is never saved as "staff" any more, and an old wrong record is repaired automatically.

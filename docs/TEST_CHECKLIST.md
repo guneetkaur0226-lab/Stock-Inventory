@@ -67,3 +67,13 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 ## 11. Invitation email
 - [ ] Owner: Staff & invites → Send invite → toast says the email was sent; the staff member receives a mail whose button opens the Vercel app address.
 - [ ] Pending invite → **Resend** sends it again. Staff phone cannot call the function (returns "Only the owner…").
+
+## Locations (Supplier → Item → Location → Quantity)
+- [ ] Suppliers → open a supplier that already had stock: its quantity shows under "No location set"; item total unchanged.
+- [ ] *Set location* moves part/all of it to e.g. Godown → Ground Floor. Total and Supplier Stock stay the same; History shows "Moved".
+- [ ] IN 5 / OUT 2 on a location row changes only that row, Supplier Stock and Total Item Stock; History shows the location.
+- [ ] Same item at two locations for one supplier: two separate rows. Same item under two suppliers: Total Item Stock counts both.
+- [ ] OUT larger than the row's quantity is refused. Stock tab "Any / not sure" cannot take located stock.
+- [ ] Search by supplier name and by item name; searched item shows both quantities.
+- [ ] Add supplier: name required; address/description optional; adding a duplicate name is refused.
+- [ ] Rules playground: staff update of `/locStock/x` without a matching movement → Denied.

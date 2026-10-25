@@ -11,6 +11,7 @@ export function DataProvider({ children }) {
   const [items, setItems] = useState([]);
   const [itemsReady, setItemsReady] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
+  const [locStock, setLocStock] = useState([]); // quantity per supplier + item + location
   const [prices, setPrices] = useState([]);
   const [pricesReady, setPricesReady] = useState(false);
   const [fromCache, setFromCache] = useState(false);
@@ -49,6 +50,12 @@ export function DataProvider({ children }) {
       (snap) => setSuppliers(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.name.localeCompare(b.name))),
       onErr
     );
+    const u4 = onSnapshot(
+      query(collection(db, 'locStock')),
+      { includeMetadataChanges: true },
+      (snap) => setLocStock(snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }))),
+      onErr
+    );
     let u3 = () => {};
     if (isOwner) {
       u3 = onSnapshot(
@@ -65,14 +72,15 @@ export function DataProvider({ children }) {
       u1();
       u2();
       u3();
+      u4();
     };
   }, [isOwner]);
 
   const pending = useMemo(() => items.filter((i) => i._pending).length, [items]);
 
   const value = useMemo(
-    () => ({ items, itemsReady, suppliers, prices, pricesReady, online, fromCache, pending, permError }),
-    [items, itemsReady, suppliers, prices, pricesReady, online, fromCache, pending, permError]
+    () => ({ items, itemsReady, suppliers, locStock, prices, pricesReady, online, fromCache, pending, permError }),
+    [items, itemsReady, suppliers, locStock, prices, pricesReady, online, fromCache, pending, permError]
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

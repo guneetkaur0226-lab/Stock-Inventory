@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Field, SuggestInput } from '../components/ui.jsx';
+import LocationSelect from '../components/LocationSelect.jsx';
 import { UNITS, INTEGER_UNITS, parseNumber, squish, clean } from '../lib/text.js';
 
 /** Used for both "add item" and (owner) "edit item". */
@@ -14,6 +15,7 @@ export default function ItemForm({ mode, item, items, supplierNames, onSubmit, b
     minQty: item ? String(item.minQty || '') : '',
     qty: '',
     supplier: '',
+    location: '',
     note: '',
   });
   const [errs, setErrs] = useState({});
@@ -53,7 +55,7 @@ export default function ItemForm({ mode, item, items, supplierNames, onSubmit, b
     }
     setErrs(e);
     if (Object.keys(e).length) return;
-    onSubmit({ name, partNo, brand: clean(f.brand, 60), model: clean(f.model, 120), unit: f.unit, minQty: min, qty, supplier: clean(f.supplier, 80), note: clean(f.note, 300) });
+    onSubmit({ name, partNo, brand: clean(f.brand, 60), model: clean(f.model, 120), unit: f.unit, minQty: min, qty, supplier: clean(f.supplier, 80), location: clean(f.supplier, 80) && qty > 0 ? f.location : '', note: clean(f.note, 300) });
   }
 
   return (
@@ -100,6 +102,11 @@ export default function ItemForm({ mode, item, items, supplierNames, onSubmit, b
               <SuggestInput id="f-sup" value={f.supplier} onChange={set('supplier')} options={supplierNames} maxLength={80} />
             </Field>
           </div>
+          {clean(f.supplier, 80) && (
+            <Field label="Store at location (optional)" hint="Only used when there is opening stock." htmlFor="f-loc">
+              <LocationSelect id="f-loc" value={f.location} onChange={set('location')} blank="No location set" />
+            </Field>
+          )}
           <Field label="Note (optional)" htmlFor="f-note">
             <input id="f-note" value={f.note} onChange={set('note')} maxLength={300} />
           </Field>

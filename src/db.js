@@ -21,6 +21,8 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase.js';
 import { INTEGER_UNITS, round3, clean, slug, priceId } from './lib/text.js';
+import { locDocId, rowsForSupplier, supplierKey } from './lib/stockLoc.js';
+import { planOutAny, validateLocMove } from './lib/moveRules.js';
 
 // ----------------------------------------------------------------- helpers
 export function buckets(item) {
@@ -31,44 +33,27 @@ export function buckets(item) {
 
 const findKey = (by, name) => Object.keys(by).find((k) => k.toLowerCase() === name.toLowerCase()) || name;
 
-/** Which supplier "pot" does an OUT take from? */
-function allocateOut(item, qty, chosen) {
-  const { by, unassigned } = buckets(item);
-  const changes = {}; // supplierName -> new quantity
+/**
+ * Which supplier "pot" does an OUT take from? (stock that sits at a location is only taken when
+ * that supplier + location was chosen, so located quantities never drift from the item totals)
+ */
+function allocateOut(item, qty, chosen, itemRows) {
   if (chosen) {
+    const { by } = buckets(item);
     const k = findKey(by, chosen);
-    changes[k] = round3((by[k] || 0) - qty);
-    return changes;
+    return { [k]: round3((by[k] || 0) - qty) }; // supplierName -> new quantity
   }
-  let left = qty;
-  left = round3(left - Math.min(left, unassigned)); // unassigned stock goes first
-  const order = Object.entries(by)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1]);
-  for (const [k, v] of order) {
-    if (left <= 0) break;
-    const take = Math.min(v, left);
-    changes[k] = round3(v - take);
-    left = round3(left - take);
-  }
-  return changes;
+  return planOutAny(item, itemRows, qty) || {};
 }
 
-/** Returns an error message, or '' when the movement is fine. */
-export function validateMove(item, type, qty, supplier) {
+/** Returns an error message, or '' when the movement is fine. `itemRows` = this item's locStock rows. */
+export function validateMove(item, type, qty, supplier, location = '', itemRows = []) {
   if (!Number.isFinite(qty) || qty <= 0) return 'Enter a quantity greater than 0.';
   if (INTEGER_UNITS.includes(item.unit) && !Number.isInteger(qty)) return `Quantity must be a whole number for ${item.unit}.`;
   if (Math.round(qty * 1000) / 1000 !== qty) return 'Use at most 3 decimal places.';
   if (qty > 1000000) return 'That quantity is too large.';
-  if (type === 'OUT') {
-    if (qty > item.qty) return `Only ${item.qty} ${item.unit} in stock. You cannot take out ${qty}.`;
-    if (supplier) {
-      const { by } = buckets(item);
-      const have = by[findKey(by, supplier)] || 0;
-      if (qty > have) return `Only ${have} ${item.unit} recorded under ${supplier}. Choose "Any / not sure" or a smaller quantity.`;
-    }
-  }
-  return '';
+  if (type === 'OUT' && qty > item.qty) return `Only ${item.qty} ${item.unit} in stock. You cannot take out ${qty}.`;
+  return validateLocMove(item, itemRows, { type, qty, supplier, location });
 }
 
 const mvBase = (user, item, type, qty, stockAfter, note, supplier) => ({
@@ -92,8 +77,8 @@ const mvBase = (user, item, type, qty, stockAfter, note, supplier) => ({
  * returns a promise that resolves when the server accepted it, or rejects
  * (for example if stock changed on another phone meanwhile).
  */
-export function recordStock({ item, type, qty, supplier = '', note = '', user }) {
-  const err = validateMove(item, type, qty, supplier);
+export function recordStock({ item, type, qty, supplier = '', location = '', itemRows = [], note = '', user }) {
+  const err = validateMove(item, type, qty, supplier, location, itemRows);
   if (err) throw new Error(err);
   const newQty = round3(type === 'IN' ? item.qty + qty : item.qty - qty);
 
@@ -110,19 +95,58 @@ export function recordStock({ item, type, qty, supplier = '', note = '', user })
       supLabel = k;
     }
   } else {
-    const changes = allocateOut(item, qty, supplier);
+    const changes = allocateOut(item, qty, supplier, itemRows);
     for (const [k, v] of Object.entries(changes)) args.push(new FieldPath('bySupplier', k), v > 0 ? v : deleteField());
     if (!supplier) supLabel = Object.keys(changes).length === 1 ? Object.keys(changes)[0] : '';
+    else supLabel = Object.keys(changes)[0] || supplier;
   }
 
   const batch = writeBatch(db);
   batch.update(itemRef, ...args);
-  batch.set(moveRef, mvBase(user, item, type, qty, newQty, note, supLabel));
+  const move = mvBase(user, item, type, qty, newQty, note, supLabel);
+
+  if (location) {
+    // quantity of this supplier + item + location (its own document; never stored on the item)
+    const row = rowsForSupplier(itemRows, supLabel).find((r) => r.location === location);
+    const base = row ? Number(row.qty) || 0 : 0;
+    const body = { qty: round3(type === 'IN' ? base + qty : base - qty), lastMoveId: moveRef.id, updatedAt: serverTimestamp(), updatedBy: user.uid };
+    move.supplier = clean(row ? row.supplier : supLabel, 80);
+    move.location = location;
+    if (row) batch.update(doc(db, 'locStock', row.id), body);
+    else batch.set(doc(db, 'locStock', locDocId(supLabel, item.id, location)), { itemId: item.id, supplier: move.supplier, location, ...body });
+  }
+  batch.set(moveRef, move);
+  return batch.commit();
+}
+
+/**
+ * Moves stock of one supplier from one location to another (or gives stock that has no location
+ * its first location: from = ''). The item's total and per-supplier quantity do not change.
+ */
+export function moveStock({ item, supplier, from = '', to, qty, itemRows = [], note = '', user }) {
+  const err = validateLocMove(item, itemRows, { type: 'MOVE', qty, supplier, location: from, toLocation: to });
+  if (err) throw new Error(err);
+  const key = supplierKey(item, supplier);
+  const mine = rowsForSupplier(itemRows, key);
+  const src = from ? mine.find((r) => r.location === from) : null;
+  const dst = mine.find((r) => r.location === to);
+  if (src && dst && src.supplier !== dst.supplier) throw new Error('The supplier name is spelled differently on the two locations. Ask the owner to check.');
+  const sup = clean(src?.supplier || dst?.supplier || key, 80);
+
+  const itemRef = doc(db, 'items', item.id);
+  const moveRef = doc(collection(db, 'movements'));
+  const stamp = { lastMoveId: moveRef.id, updatedAt: serverTimestamp(), updatedBy: user.uid };
+  const batch = writeBatch(db);
+  batch.update(itemRef, stamp);
+  if (src) batch.update(doc(db, 'locStock', src.id), { qty: round3((Number(src.qty) || 0) - qty), ...stamp });
+  if (dst) batch.update(doc(db, 'locStock', dst.id), { qty: round3((Number(dst.qty) || 0) + qty), ...stamp });
+  else batch.set(doc(db, 'locStock', locDocId(sup, item.id, to)), { itemId: item.id, supplier: sup, location: to, qty: round3(qty), ...stamp });
+  batch.set(moveRef, { ...mvBase(user, item, 'MOVE', qty, item.qty, note, sup), location: from, toLocation: to });
   return batch.commit();
 }
 
 // ------------------------------------------------------------------ new item
-export function addItem({ data, supplier = '', note = '', user }) {
+export function addItem({ data, supplier = '', location = '', note = '', user }) {
   const itemRef = doc(collection(db, 'items'));
   const moveRef = doc(collection(db, 'movements'));
   const qty = round3(data.qty || 0);
@@ -144,7 +168,20 @@ export function addItem({ data, supplier = '', note = '', user }) {
   };
   const batch = writeBatch(db);
   batch.set(itemRef, item);
-  batch.set(moveRef, mvBase(user, { id: itemRef.id, ...item }, 'NEW', qty, qty, note || 'New item added', sup));
+  const move = mvBase(user, { id: itemRef.id, ...item }, 'NEW', qty, qty, note || 'New item added', sup);
+  if (location && sup && qty > 0) {
+    move.location = location;
+    batch.set(doc(db, 'locStock', locDocId(sup, itemRef.id, location)), {
+      itemId: itemRef.id,
+      supplier: sup,
+      location,
+      qty,
+      lastMoveId: moveRef.id,
+      updatedAt: serverTimestamp(),
+      updatedBy: user.uid,
+    });
+  }
+  batch.set(moveRef, move);
   return batch.commit();
 }
 
@@ -170,10 +207,11 @@ export function editItem({ item, data, user }) {
   return batch.commit();
 }
 
-export function deleteItem({ item, user }) {
+export function deleteItem({ item, itemRows = [], user }) {
   const moveRef = doc(collection(db, 'movements'));
   const batch = writeBatch(db);
   batch.delete(doc(db, 'items', item.id));
+  itemRows.forEach((r) => batch.delete(doc(db, 'locStock', r.id))); // its supplier/location quantities go with it
   batch.set(moveRef, mvBase(user, item, 'DELETE', item.qty, 0, 'Item deleted', ''));
   return batch.commit();
 }
@@ -287,9 +325,31 @@ export async function savePrice({ original, data, user, existingSupplierIds }) {
 
 export const deletePrice = (id) => deleteDoc(doc(db, 'prices', id));
 
-export function saveSupplier({ id, name, note }) {
+/**
+ * Saves a supplier (name required; address and description optional) and, in the same batch,
+ * adds the chosen item + location slots (quantity 0) and removes slots the owner un-ticked.
+ * Quantities are changed only with IN / OUT / MOVE so history always explains them.
+ */
+export function saveSupplier({ id, name, note, address = '', addSlots = [], removeSlotIds = [], user }) {
   const cleaned = clean(name, 80);
-  return setDoc(doc(db, 'suppliers', id || slug(cleaned)), { name: cleaned, note: clean(note, 200), updatedAt: serverTimestamp() });
+  const body = { name: cleaned, note: clean(note, 500), updatedAt: serverTimestamp() };
+  const addr = clean(address, 300);
+  if (addr) body.address = addr;
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'suppliers', id || slug(cleaned)), body);
+  for (const s of addSlots) {
+    batch.set(doc(db, 'locStock', locDocId(s.supplier, s.itemId, s.location)), {
+      itemId: s.itemId,
+      supplier: clean(s.supplier, 80),
+      location: s.location,
+      qty: 0,
+      lastMoveId: '',
+      updatedAt: serverTimestamp(),
+      updatedBy: user.uid,
+    });
+  }
+  removeSlotIds.forEach((rid) => batch.delete(doc(db, 'locStock', rid)));
+  return batch.commit();
 }
 
 // -------------------------------------------------------------- staff (owner)
@@ -363,7 +423,7 @@ export async function fetchAllMovements(onProgress) {
  *  3. The supplier record is deleted.
  * Steps are ordered so a failure part-way is safe to retry.
  */
-export async function deleteSupplier({ name, docIds = [], items, prices, user, onProgress }) {
+export async function deleteSupplier({ name, docIds = [], items, prices, locRows = [], user, onProgress }) {
   const target = slug(name);
   const holders = [];
   for (const item of items) {
@@ -371,7 +431,8 @@ export async function deleteSupplier({ name, docIds = [], items, prices, user, o
     if (keys.length) holders.push({ item, keys });
   }
   const myPrices = prices.filter((p) => slug(p.supplier) === target);
-  const total = holders.length + myPrices.length + 1;
+  const myLocs = locRows.filter((r) => slug(r.supplier) === target);
+  const total = holders.length + myLocs.length + myPrices.length + 1;
   let done = 0;
 
   // 1) strip the supplier tag from stock items (8 per batch: the security rules
@@ -386,6 +447,15 @@ export async function deleteSupplier({ name, docIds = [], items, prices, user, o
       batch.update(doc(db, 'items', item.id), ...args);
       batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier "${name}" deleted: removed from this item (stock quantity unchanged)`, ''));
     }
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, total);
+  }
+
+  // 1b) this supplier's location quantities (the item totals stay; that stock shows as "Other")
+  for (const part of chunk(myLocs, 400)) {
+    const batch = writeBatch(db);
+    part.forEach((r) => batch.delete(doc(db, 'locStock', r.id)));
     await batch.commit();
     done += part.length;
     onProgress?.(done, total);
