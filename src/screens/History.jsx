@@ -131,9 +131,9 @@ export default function History() {
         <div className="hist-filters card pad">
           <div className="grid2">
             <label className="field">
-              <span>Staff member</span>
+              <span>Member</span>
               <select value={staff} onChange={(e) => setStaff(e.target.value)}>
-                <option value="">All staff</option>
+                <option value="">All members</option>
                 {staffOptions.map(([id, n]) => (
                   <option key={id} value={id}>{n}</option>
                 ))}

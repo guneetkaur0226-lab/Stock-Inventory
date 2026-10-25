@@ -43,7 +43,7 @@ export default function Staff() {
     const e = {};
     const em = email.trim().toLowerCase();
     const nm = clean(name, 100);
-    if (!nm) e.name = 'Please type the staff member’s name.';
+    if (!nm) e.name = 'Please type the member’s name.';
     else if (nm.length > 80) e.name = 'Name can be at most 80 characters.';
     if (!/^[^@\s/]+@[^@\s/]+\.[^@\s/]+$/.test(em)) e.email = 'Please type a valid email, like name@gmail.com';
     else if (em === auth.profile.email) e.email = 'That is your own email.';
@@ -95,14 +95,14 @@ export default function Staff() {
     <>
       <h3 className="sec">Share the app</h3>
       <div className="card pad">
-        <p className="muted tiny">Send this link to staff (WhatsApp, SMS, anything). They must sign in with the email you invited.</p>
+        <p className="muted tiny">Send this link to members (WhatsApp, SMS, anything). They must sign in with the email you invited.</p>
         <p style={{ wordBreak: 'break-all', margin: '6px 0 10px' }}><b>{appUrl}</b></p>
         <button className="btn" type="button" onClick={copyUrl}>
           <Icon name="copy" size={18} /> Copy App URL
         </button>
       </div>
 
-      <h3 className="sec">Invite staff</h3>
+      <h3 className="sec">Invite member</h3>
       <form className="form card pad" onSubmit={(e) => { e.preventDefault(); invite(); }}>
         <Field label="Name" error={errs.name} htmlFor="st-name">
           <input id="st-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
@@ -113,8 +113,8 @@ export default function Staff() {
         <button className="btn primary big" type="submit" disabled={busy}>Send invite</button>
       </form>
 
-      <h3 className="sec">Staff with access ({staff.length})</h3>
-      {staff.length === 0 && <p className="muted">No staff have signed in yet.</p>}
+      <h3 className="sec">Members with access ({staff.length})</h3>
+      {staff.length === 0 && <p className="muted">No members have signed in yet.</p>}
       {staff.map((p) => (
         <div className="card pad person" key={p.uid}>
           <Icon name="user" />

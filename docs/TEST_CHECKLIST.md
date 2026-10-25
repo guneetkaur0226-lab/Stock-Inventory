@@ -10,7 +10,7 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] Item at or below its alert level (or 0) shows orange "Low stock / Out of stock" and appears under **Low / out**.
 
 ## 2. Staff are blocked from owner things
-- [ ] Staff phone has the Suppliers tab (no Delete supplier button, no prices); More has **no Import / Export / Staff** rows; no Edit/Delete in an item.
+- [ ] Member phone has the Suppliers tab (no Delete supplier button, no prices); More has **no Import / Export / Staff** rows; no Edit/Delete in an item.
 - [ ] *Server check:* in Firebase console → Firestore → **Rules → Rules playground**, simulate **get** on `/prices/test` signed in as a staff user → **Denied**. (Or: staff signed-in phone never shows prices.)
 - [ ] Staff cannot see "History CSV download".
 
@@ -53,7 +53,7 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 
 
 ## 9. Purge old history (owner only)
-- [ ] Staff phone: More has **no** "Purge old history" row.
+- [ ] Member phone: More has **no** "Purge old history" row.
 - [ ] Owner: More → Purge old history shows total and "older than …" counts; **Delete old history** stays greyed out until you type PURGE.
 - [ ] Choosing 60 days with only recent test data shows 0 old entries (nothing can be deleted).
 - [ ] After a purge, the Stock tab and every quantity are unchanged; History only lost the old entries; each item still has its latest entry.
@@ -65,8 +65,8 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] After deleting: the supplier is gone, its stock items still exist with the same quantity (shown as "Other"), its prices are gone, History shows an EDIT line per affected item.
 
 ## 11. Invitation email
-- [ ] Owner: Staff & invites → Send invite → toast says the email was sent; the staff member receives a mail whose button opens the Vercel app address.
-- [ ] Pending invite → **Resend** sends it again. Staff phone cannot call the function (returns "Only the owner…").
+- [ ] Owner: Members & invites → Send invite → toast says the email was sent; the staff member receives a mail whose button opens the Vercel app address.
+- [ ] Pending invite → **Resend** sends it again. Member phone cannot call the function (returns "Only the owner…").
 
 ## Locations (Supplier → Item → Location → Quantity)
 - [ ] Suppliers → open a supplier that already had stock: its quantity shows under "No location set"; item total unchanged.
@@ -80,5 +80,5 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 
 ## History filters / staff on Suppliers
 - [ ] History → Filters: choose staff + supplier + item + location + custom dates together; only matching entries remain. Clear all filters restores the list.
-- [ ] Staff: Suppliers tab opens; can add/edit a supplier, set a location, IN / OUT / Move. No Delete supplier button.
-- [ ] Staff: Rules playground delete of `/suppliers/x`, `/items/x`, `/movements/x` → Denied. Delete of a `/locStock` row with quantity above 0 → Denied.
+- [ ] Member: Suppliers tab opens; can add/edit a supplier, set a location, IN / OUT / Move. No Delete supplier button.
+- [ ] Member: Rules playground delete of `/suppliers/x`, `/items/x`, `/movements/x` → Denied. Delete of a `/locStock` row with quantity above 0 → Denied.

@@ -78,8 +78,8 @@ Your sheet's columns (one per supplier) are stored as "stock held from each supp
 2. Chrome menu **⋮ → Install app** (or *Add to Home screen*). Or **More → Install app on this phone**.
 3. The app icon appears on the home screen. Install it **while online once**; after that it opens offline too.
 
-## Step 13 — Invite the 2 staff
-Owner: **More → Staff & invites** → type name + Gmail → **Send invite**. The staff member gets an email with the app link. They open it, sign in with **that same Gmail** → they are in. If the email does not arrive, use **Resend** (or share the link yourself). To remove someone: **Remove** (works immediately).
+## Step 13 — Invite the 2 members
+Owner: **More → Members & invites** → type name + Gmail → **Send invite**. The member gets an email with the app link. They open it, sign in with **that same Gmail** → they are in. If the email does not arrive, use **Resend** (or share the link yourself). To remove someone: **Remove** (works immediately).
 
 **One-time setup for the invitation email** (Vercel → Settings → Environment Variables, then Redeploy):
 

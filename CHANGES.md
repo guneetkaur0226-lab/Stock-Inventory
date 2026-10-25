@@ -1,3 +1,9 @@
+# Changes: "Staff" is now "Member" in the app
+
+* All screen text, the invite page and the docs say **Member** instead of Staff. Internally the saved role value stays `staff` (database, rules, existing users), so nobody loses access and no migration is needed.
+* **Access check**: only invited members (and the owner) see the app. Anyone else gets the "No access" page. If a member is removed while the app is open, they are sent to "No access" instead of keeping the old screen.
+* No rules change needed.
+
 # Changes: staff login fixes
 
 * **Stuck on "Starting…"**: the profile listener now also hears the server's confirmation when the phone's cache says "no profile yet" (`includeMetadataChanges`), retries the profile creation once, and a listener error shows the "No access" screen with the reason instead of loading forever. If loading takes over 12 seconds, a *Try again* / *Sign out* screen appears.
@@ -34,7 +40,7 @@
 * **Owner/Staff switching fixed** (`src/auth.jsx`, `src/lib/owner.js`, `vite.config.js`): the Owner view is decided from the verified sign-in email compared with `OWNER_EMAIL` (read at build time), not from a saved database record, so it cannot flip. The owner is never saved as "staff" any more, and an old wrong record is repaired automatically.
 * **Purge history by date range** (`src/screens/PurgeHistory.jsx`, `src/db.js`, `firestore.rules`): Last day / 7 days / 30 days, older than 60 d / 90 d / 6 m / 1 y, or a custom date range. Only history entries inside the range are deleted; items, suppliers, prices and each item's latest history entry are kept. **Publish the updated `firestore.rules`** (the old 30-day minimum was removed).
 * **Suppliers tab**: stock items per supplier use a fixed two-line row (name, part no.) with the quantity in its own column.
-* **Staff invite email**: Gmail App Password support (spaces/quotes removed, clearer errors, timeouts); `SMTP_USER` falls back to `OWNER_EMAIL`. New **Copy App URL** button in More -> Staff & invites.
+* **Staff invite email**: Gmail App Password support (spaces/quotes removed, clearer errors, timeouts); `SMTP_USER` falls back to `OWNER_EMAIL`. New **Copy App URL** button in More -> Members & invites.
 * `package-lock.json` re-synced (it was missing `nodemailer`).
 
 # Changes in this update

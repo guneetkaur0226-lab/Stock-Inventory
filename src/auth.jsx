@@ -132,6 +132,7 @@ export function AuthProvider({ children }) {
         }
         if (snap.metadata.fromCache) return; // wait for the server's answer
         if (registering) return;
+        setProfile(undefined); // access was removed while the app was open: do not keep showing the app
         registering = true;
         register(fbUserRef.current || user)
           .then((ok) => !ok && setDenied(true))
