@@ -300,3 +300,17 @@ code { background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px
 .pick-list { display: flex; flex-direction: column; gap: 6px; margin: -6px 0 14px; }
 .pick-row { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; min-height: 52px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--card); }
 .si-move-info { margin-bottom: 12px; overflow-wrap: anywhere; }
+
+/* supplier header: name on the left, Edit / Delete icons in front of it when expanded */
+.card-head-row { display: flex; align-items: center; }
+.card-head-row .card-head { flex: 1; min-width: 0; width: auto; }
+.head-actions { display: flex; gap: 4px; padding-right: 8px; flex-shrink: 0; }
+.head-actions .icon-btn { min-width: 46px; min-height: 46px; }
+.icon-btn.danger { color: #ff8a80; }
+/* collapsed item row */
+.si-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; width: 100%; text-align: left; min-height: 54px; cursor: pointer; font: inherit; color: inherit; }
+.si-rowqty { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.si-rowqty b { font-size: 20px; }
+.si-rowqty span { font-size: 13px; color: var(--muted); }
+.si-title { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; width: 100%; background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit; min-height: 32px; }
+.si-chev { color: var(--muted); }

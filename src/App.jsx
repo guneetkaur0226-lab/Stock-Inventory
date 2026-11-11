@@ -92,11 +92,11 @@ function SyncPill() {
 }
 
 function Shell() {
-  const [tab, setTab] = useState('stock');
+  const [tab, setTab] = useState('suppliers');
   const tabs = [
+    { id: 'suppliers', label: 'Suppliers', icon: 'tag' },
     { id: 'stock', label: 'Stock', icon: 'box' },
     { id: 'history', label: 'History', icon: 'clock' },
-    { id: 'suppliers', label: 'Suppliers', icon: 'tag' },
     { id: 'more', label: 'More', icon: 'menu' },
   ];
   const Screen = { stock: Stock, history: History, suppliers: Suppliers, more: More }[tab];

@@ -1,3 +1,13 @@
+# Changes: Suppliers tab on mobile
+
+* The app opens on the **Suppliers** tab.
+* Items under a supplier are collapsed: **item name + quantity only**. Tap an item to see locations and IN / OUT / Move; tap its name to collapse. When you search for an item, the matching items open automatically.
+* **Edit** and **Delete** (owner) icons now sit in the supplier's header, next to its name, and appear when the supplier is expanded.
+
+# Changes: tab order
+
+* Bottom tabs are now Suppliers, Stock, History, More. The app still opens on Stock.
+
 # Changes: "Staff" is now "Member" in the app
 
 * All screen text, the invite page and the docs say **Member** instead of Staff. Internally the saved role value stays `staff` (database, rules, existing users), so nobody loses access and no migration is needed.

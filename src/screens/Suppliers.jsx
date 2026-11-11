@@ -136,30 +136,40 @@ export default function Suppliers() {
             const sub = [s.dir?.address, s.dir?.note].filter(Boolean).join(' · ') || 'No address or description';
             return (
               <li key={s.name} className="card">
-                <button className="card-head" onClick={() => setOpen((o) => ({ ...o, [s.name]: !isOpen }))} aria-expanded={isOpen}>
-                  <div className="sup-head-main">
-                    <div className="item-name">{s.name}</div>
-                    <div className="item-sub">{sub}</div>
-                  </div>
-                  <span className="count">
-                    {s.byItemOnly ? `${s.list.length} of ${s.all.length}` : s.all.length} item{s.all.length === 1 ? '' : 's'}
-                  </span>
-                </button>
+                <div className="card-head-row">
+                  <button className="card-head" onClick={() => setOpen((o) => ({ ...o, [s.name]: !isOpen }))} aria-expanded={isOpen}>
+                    <div className="sup-head-main">
+                      <div className="item-name">{s.name}</div>
+                      <div className="item-sub">{sub}</div>
+                    </div>
+                    <span className="count">
+                      {s.byItemOnly ? `${s.list.length} of ${s.all.length}` : s.all.length} item{s.all.length === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="head-actions">
+                      <button
+                        className="icon-btn"
+                        onClick={() => setSupForm({ ...(s.dir || {}), id: s.dir?.id || slug(s.name), name: s.name })}
+                        aria-label={`Edit supplier ${s.name}`}
+                      >
+                        <Icon name="edit" size={20} />
+                      </button>
+                      {auth.isOwner && (
+                        <button className="icon-btn danger" onClick={() => removeSupplier(s)} disabled={!!deleting} aria-label={`Delete supplier ${s.name}`}>
+                          <Icon name="trash" size={20} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {isOpen && (
                   <div className="card-body">
                     {s.list.length === 0 && <p className="muted">No items linked to this supplier yet. Use “Edit supplier” to choose items and locations.</p>}
                     {s.list.slice(0, 60).map(({ item, view }) => (
-                      <SupplierItem key={item.id} item={item} view={view} supplier={s.name} itemRows={rowsByItem.get(item.id) || []} />
+                      <SupplierItem key={item.id} item={item} view={view} supplier={s.name} itemRows={rowsByItem.get(item.id) || []} defaultOpen={s.byItemOnly} />
                     ))}
                     {s.list.length > 60 && <div className="muted tiny">…and {s.list.length - 60} more items. Search to narrow the list.</div>}
-                    <button className="btn" onClick={() => setSupForm({ ...(s.dir || {}), id: s.dir?.id || slug(s.name), name: s.name })}>
-                      <Icon name="edit" size={18} /> Edit supplier
-                    </button>
-                    {auth.isOwner && (
-                      <button className="btn danger-o" onClick={() => removeSupplier(s)} disabled={!!deleting}>
-                        <Icon name="trash" size={18} /> {deleting === s.name ? 'Deleting…' : 'Delete supplier'}
-                      </button>
-                    )}
                   </div>
                 )}
               </li>
@@ -185,11 +195,26 @@ export default function Suppliers() {
 }
 
 // ------------------------------------------------------------ one item of a supplier
-function SupplierItem({ item, view, supplier, itemRows }) {
+function SupplierItem({ item, view, supplier, itemRows, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!open) {
+    // collapsed: item name and this supplier's quantity only; tap to see locations and IN / OUT
+    return (
+      <button type="button" className="si si-row" onClick={() => setOpen(true)} aria-expanded="false">
+        <span className="si-name">{item.name}</span>
+        <span className="si-rowqty">
+          <b>{fmtNum(view.supplierStock)}</b> <span>{item.unit}</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <div className="si">
       <div className="si-head">
-        <div className="si-name">{item.name}</div>
+        <button type="button" className="si-title" onClick={() => setOpen(false)} aria-expanded="true" aria-label={`Collapse ${item.name}`}>
+          <span className="si-name">{item.name}</span>
+          <span className="si-chev" aria-hidden="true">▴</span>
+        </button>
         <div className="si-sub">{partLine(item)}</div>
         <div className="si-totals">
           <span className="chip static">
