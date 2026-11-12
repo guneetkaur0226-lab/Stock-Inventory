@@ -431,7 +431,8 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
   }, [items, picked, pickQ]);
 
   const addItem = (item) => {
-    setPicked((p) => [...p, { itemId: item.id, entries: [{ key: `n${keyN.current++}`, rowId: null, location: '', qty: 0 }] }]);
+    // newly added items go to the TOP so a long list needs no scrolling
+    setPicked((p) => [{ itemId: item.id, entries: [{ key: `n${keyN.current++}`, rowId: null, location: '', qty: 0 }] }, ...p]);
     setPickQ('');
   };
   const setEntry = (itemId, key, patch) =>
@@ -490,8 +491,17 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
   }
 
   return (
-    <Sheet title={editing ? 'Edit supplier' : 'Add supplier'} onClose={onClose} tall>
-      <form className="form" onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
+    <Sheet
+      title={editing ? 'Edit supplier' : 'Add supplier'}
+      onClose={onClose}
+      tall
+      actions={
+        <button type="submit" form="supplier-form" className="icon-btn save" disabled={busy} aria-label="Save supplier" title="Save supplier">
+          <Icon name="check" size={24} />
+        </button>
+      }
+    >
+      <form id="supplier-form" className="form" onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
         <Field label="Supplier name *" error={errs.name} hint={editing ? 'The name cannot be changed because stock is linked to it.' : undefined} htmlFor="s-name">
           <input id="s-name" value={name} onChange={(ev) => setName(ev.target.value)} readOnly={editing} maxLength={100} autoFocus={!editing} />
         </Field>
@@ -576,9 +586,6 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
         })}
         <p className="hint">Quantities are added with IN / OUT in the supplier’s item list, so History always explains them.</p>
 
-        <button className="btn primary big" type="submit" disabled={busy}>
-          Save supplier
-        </button>
       </form>
     </Sheet>
   );

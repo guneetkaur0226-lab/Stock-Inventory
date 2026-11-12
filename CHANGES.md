@@ -1,3 +1,10 @@
+# Changes: pop-up icons, history card box
+
+* **History card**: the quantity line is now the same yellow box as the supplier item view (Last change ... at location / Old Supplier Stock ... → now ...). Old entries without supplier quantities say "Old Total Stock".
+* **Save icon at the top** (next to the cross) for Edit/Add supplier, Edit item and Add item; the big bottom buttons are removed.
+* **Edit and Delete icons** at the top of the stock item pop-up (owner only), like suppliers.
+* **Edit supplier**: an item you add goes to the top of the list.
+
 # Changes: History cards, Delete history, Backup & Restore
 
 **Publish the updated `firestore.rules`** (history entries can now carry the supplier's quantity before / after).

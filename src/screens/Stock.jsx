@@ -129,13 +129,22 @@ function ItemGone({ onClose }) {
   return null;
 }
 
+// Small save icon for the top of a pop-up (next to the cross); submits the form with this id.
+function SaveIcon({ form, label }) {
+  return (
+    <button type="submit" form={form} className="icon-btn save" aria-label={label} title={label}>
+      <Icon name="check" size={24} />
+    </button>
+  );
+}
+
 function AddSheet({ onClose }) {
   const auth = useAuth();
   const { items } = useData();
   const supplierNames = useSupplierNames();
   const toast = useToast();
   return (
-    <Sheet title="Add new item" onClose={onClose} tall>
+    <Sheet title="Add new item" onClose={onClose} tall actions={<SaveIcon form="item-form" label="Add item" />}>
       <ItemForm
         mode="add"
         items={items}
@@ -233,7 +242,7 @@ function ItemSheet({ item, onClose }) {
 
   if (view === 'edit') {
     return (
-      <Sheet title="Edit item" onClose={() => setView('move')} tall>
+      <Sheet title="Edit item" onClose={() => setView('move')} tall actions={<SaveIcon form="item-form" label="Save changes" />}>
         <ItemForm
           mode="edit"
           item={item}
@@ -266,7 +275,23 @@ function ItemSheet({ item, onClose }) {
   const outIdx = Math.max(0, outOptions.findIndex((o) => o.s === supplier && o.l === location));
 
   return (
-    <Sheet title={item.name} onClose={onClose} tall>
+    <Sheet
+      title={item.name}
+      onClose={onClose}
+      tall
+      actions={
+        auth.isOwner && (
+          <>
+            <button className="icon-btn" onClick={() => setView('edit')} aria-label="Edit details">
+              <Icon name="edit" size={20} />
+            </button>
+            <button className="icon-btn danger" onClick={remove} aria-label="Delete item">
+              <Icon name="trash" size={20} />
+            </button>
+          </>
+        )
+      }
+    >
       <div className="item-head">
         <div className="muted">{[item.partNo && `Part ${item.partNo}`, item.brand, item.model].filter(Boolean).join(' · ') || 'No part no. / brand / model'}</div>
         <div className={`bigqty ${item.qty === 0 ? 'out' : item.minQty > 0 && item.qty <= item.minQty ? 'lowq' : ''}`}>
@@ -386,17 +411,6 @@ function ItemSheet({ item, onClose }) {
       <button className={`btn big ${type === 'IN' ? 'in' : 'out'}`} onClick={save} disabled={type === 'OUT' && item.qty === 0}>
         {type === 'OUT' && item.qty === 0 ? 'Out of stock' : `Save ${type}`}
       </button>
-
-      {auth.isOwner && (
-        <div className="row gap owner-actions">
-          <button className="btn" onClick={() => setView('edit')}>
-            <Icon name="edit" size={18} /> Edit details
-          </button>
-          <button className="btn danger-o" onClick={remove}>
-            <Icon name="trash" size={18} /> Delete
-          </button>
-        </div>
-      )}
 
       <h3 className="sec">History of this item</h3>
       {moves === null ? (

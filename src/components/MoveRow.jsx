@@ -7,12 +7,11 @@ const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 
 export default function MoveRow({ m, showItem = true }) {
   const d = m.at?.toDate?.();
-  const sign = m.type === 'IN' ? '+' : '−';
-  // "old + qty = new": the supplier's own quantity when it was recorded, otherwise the item's total
+    // "old + qty = new": the supplier's own quantity when it was recorded, otherwise the item's total
   let sum = null;
   if (m.type === 'IN' || m.type === 'OUT') {
-    if (isNumber(m.supplierBefore) && isNumber(m.supplierAfter)) sum = { label: 'Supplier stock', before: m.supplierBefore, after: m.supplierAfter };
-    else if (isNumber(m.stockAfter)) sum = { label: 'Total stock', before: m.type === 'IN' ? m.stockAfter - m.qty : m.stockAfter + m.qty, after: m.stockAfter };
+    if (isNumber(m.supplierBefore) && isNumber(m.supplierAfter)) sum = { label: 'Supplier Stock', before: m.supplierBefore, after: m.supplierAfter };
+    else if (isNumber(m.stockAfter)) sum = { label: 'Total Stock', before: m.type === 'IN' ? m.stockAfter - m.qty : m.stockAfter + m.qty, after: m.stockAfter };
   }
   const r3 = (n) => Math.round(n * 1000) / 1000;
   return (
@@ -27,9 +26,14 @@ export default function MoveRow({ m, showItem = true }) {
         )}
         {m.supplier ? <div className="move-sup">{m.supplier}</div> : m.type === 'IN' || m.type === 'OUT' ? <div className="move-sup muted">No supplier</div> : null}
         {sum && (
-          <div className="move-qty">
-            <span className="muted">{sum.label}: </span>
-            {fmtNum(r3(sum.before))} <b>{sign} {fmtNum(m.qty)}</b> = <b>{fmtNum(r3(sum.after))}</b> {m.unit}
+          <div className="si-last">
+            <div>
+              Last change: <b>{m.type} {fmtNum(m.qty)} {m.unit}</b>
+              {m.location ? <> at {locationText(m.location)}</> : null}
+            </div>
+            <div>
+              Old {sum.label}: <b>{fmtNum(r3(sum.before))} {m.unit}</b> → now <b>{fmtNum(r3(sum.after))} {m.unit}</b>
+            </div>
           </div>
         )}
         {m.type === 'NEW' && (
@@ -51,7 +55,7 @@ export default function MoveRow({ m, showItem = true }) {
           <div className="move-note muted">
             {locationText(m.location) || 'No location set'} → {locationText(m.toLocation)}
           </div>
-        ) : m.location ? (
+        ) : m.location && !sum ? (
           <div className="move-note muted">{locationText(m.location)}</div>
         ) : null}
         {m.note ? <div className="move-note">{m.note}</div> : null}

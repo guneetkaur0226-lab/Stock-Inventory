@@ -61,7 +61,7 @@ export function ToastProvider({ children }) {
 }
 
 // ------------------------------------------------------------ sheet / page
-export function Sheet({ title, onClose, children, footer, tall }) {
+export function Sheet({ title, onClose, children, footer, tall, actions }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
@@ -77,6 +77,7 @@ export function Sheet({ title, onClose, children, footer, tall }) {
       <div className={`sheet ${tall ? 'tall' : ''}`}>
         <div className="sheet-head">
           <h2>{title}</h2>
+          {actions}
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>

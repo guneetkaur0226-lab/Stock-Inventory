@@ -60,6 +60,7 @@ export default function ItemForm({ mode, item, items, supplierNames, onSubmit, b
 
   return (
     <form
+      id="item-form"
       className="form"
       onSubmit={(ev) => {
         ev.preventDefault();
@@ -113,9 +114,6 @@ export default function ItemForm({ mode, item, items, supplierNames, onSubmit, b
         </>
       )}
       {editing && <p className="hint">Quantity can only be changed with stock IN / OUT so the history stays correct.</p>}
-      <button className="btn primary big" type="submit" disabled={busy}>
-        {editing ? 'Save changes' : 'Add item'}
-      </button>
     </form>
   );
 }
