@@ -19,7 +19,7 @@ npm test                 # importer + search self-tests
 | Collection | Who can read | Who can write |
 |---|---|---|
 | `items` (name, partNo, brand, model, qty, unit, minQty, `bySupplier` map) | owner, member | member/owner: only via IN/OUT/new (with history); owner: edit, delete, import |
-| `movements` (history) | owner, member | create only; **never edited**; only the owner can delete entries older than 30 days (More → Purge old history) |
+| `movements` (history) | owner, member | create only; **never edited**; only the owner can delete entries (History tab → Delete history) |
 | `suppliers` (names + note) | owner, member | owner (create, edit, delete) |
 | `prices` (supplier price list) | **owner only** | owner |
 | `users`, `invites` | owner (+ own profile) | owner invites/removes |

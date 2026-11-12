@@ -6,7 +6,6 @@ import { Icon, Page, Segmented } from '../components/ui.jsx';
 import Staff from './Staff.jsx';
 import Import from './Import.jsx';
 import Export from './Export.jsx';
-import PurgeHistory from './PurgeHistory.jsx';
 
 export default function More() {
   const { isOwner, profile, fbUser, logout } = useAuth();
@@ -23,8 +22,8 @@ export default function More() {
   }, []);
 
   if (page) {
-    const titles = { staff: 'Members & invites', import: 'Import from Excel / CSV', export: 'Export & template', purge: 'Purge history' };
-    const Body = { staff: Staff, import: Import, export: Export, purge: PurgeHistory }[page];
+    const titles = { staff: 'Members & invites', import: 'Restore', export: 'Backup' };
+    const Body = { staff: Staff, import: Import, export: Export }[page];
     return (
       <Page title={titles[page]} onBack={() => setPage(null)}>
         <Body />
@@ -56,9 +55,8 @@ export default function More() {
       {isOwner && (
         <div className="card">
           <Row icon="user" title="Members & invites" sub="Invite or remove members" onClick={() => setPage('staff')} />
-          <Row icon="upload" title="Import" sub="Stock, supplier prices, supplier names (.xlsx / .xls / .csv)" onClick={() => setPage('import')} />
-          <Row icon="download" title="Export & template" sub="Stock, prices, history as CSV or Excel" onClick={() => setPage('export')} />
-          <Row icon="trash" title="Purge history" sub="Free up storage by deleting history for a date range (owner only)" onClick={() => setPage('purge')} />
+          <Row icon="download" title="Backup" sub="Save all stock, suppliers and locations to a file" onClick={() => setPage('export')} />
+          <Row icon="upload" title="Restore" sub="Load stock, suppliers and locations from a backup file" onClick={() => setPage('import')} />
         </div>
       )}
 

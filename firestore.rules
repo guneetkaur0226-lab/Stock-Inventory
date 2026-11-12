@@ -207,7 +207,8 @@ service cloud.firestore {
     function validMove(d) {
       return d.keys().hasOnly([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
-          'note', 'supplier', 'by', 'byName', 'at', 'location', 'toLocation'
+          'note', 'supplier', 'by', 'byName', 'at', 'location', 'toLocation',
+          'supplierBefore', 'supplierAfter'
         ])
         && d.keys().hasAll([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
@@ -229,6 +230,9 @@ service cloud.firestore {
         && (!('location' in d) || (isStr(d.location, 80) && (d.location == '' || validLocation(d.location))))
         && (!('location' in d) || d.location == '' || d.supplier.size() > 0)
         && (!('toLocation' in d) || (d.type == 'MOVE' && validLocation(d.toLocation)))
+        // what the supplier held before / after this change (for the History card)
+        && (!('supplierBefore' in d) || (isNum(d.supplierBefore) && d.supplierBefore >= 0 && d.supplierBefore <= 10000000))
+        && (!('supplierAfter' in d) || (isNum(d.supplierAfter) && d.supplierAfter >= 0 && d.supplierAfter <= 10000000))
         && (d.type != 'MOVE'
             || ('location' in d && 'toLocation' in d
                 && d.supplier.size() > 0

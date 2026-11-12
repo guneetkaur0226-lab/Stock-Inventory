@@ -1,68 +1,42 @@
 import { useState } from 'react';
 import { useData } from '../store.jsx';
-import { fetchAllMovements } from '../db.js';
-import { downloadCsv, downloadXlsx } from '../lib/csv.js';
-import { historyRows, priceRows, stockRows, TEMPLATE_SHEETS } from '../lib/exporter.js';
+import { downloadXlsx } from '../lib/csv.js';
+import { backupSheets } from '../lib/exporter.js';
 import { Icon, useToast } from '../components/ui.jsx';
 
-export default function Export() {
-  const { items, prices } = useData();
-  const toast = useToast();
-  const [busy, setBusy] = useState('');
-  const today = new Date().toISOString().slice(0, 10);
+const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  async function run(kind, fmt) {
-    setBusy(kind + fmt);
+/** Backup: one file with all stock, suppliers and locations. */
+export default function Backup() {
+  const { items, suppliers, locStock } = useData();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    setBusy(true);
     try {
-      let rows;
-      let name;
-      if (kind === 'stock') {
-        rows = stockRows(items);
-        name = 'Stock';
-      } else if (kind === 'prices') {
-        rows = priceRows(prices);
-        name = 'Supplier Prices';
-      } else {
-        rows = historyRows(await fetchAllMovements());
-        name = 'History';
-      }
-      const file = `${name.toLowerCase().replace(/ /g, '-')}-${today}`;
-      if (fmt === 'csv') downloadCsv(`${file}.csv`, rows);
-      else await downloadXlsx(`${file}.xlsx`, [{ name, rows }]);
-      toast(`Downloaded ${rows.length - 1} rows`);
+      await downloadXlsx(`Mayapuri_Stock_Backup-${localDate()}.xlsx`, backupSheets({ items, suppliers, locStock }));
+      toast('Backup saved to your phone');
     } catch (e) {
-      toast(`Export failed: ${e.message}`, 'err');
+      toast(`Backup failed: ${e.message}`, 'err');
     }
-    setBusy('');
+    setBusy(false);
   }
 
-  const Card = ({ id, title, text }) => (
-    <div className="card pad">
-      <b>{title}</b>
-      <p className="muted tiny">{text}</p>
-      <div className="row gap">
-        <button className="btn" disabled={!!busy} onClick={() => run(id, 'csv')}>
-          <Icon name="download" size={18} /> CSV
-        </button>
-        <button className="btn" disabled={!!busy} onClick={() => run(id, 'xlsx')}>
-          <Icon name="download" size={18} /> Excel
-        </button>
-      </div>
-    </div>
-  );
-
   return (
-    <>
-      <Card id="stock" title={`Stock (${items.length} items)`} text="Name, Part No, Brand, Model, Qty, Unit, Min Stock, plus one column per supplier. Can be imported back." />
-      <Card id="prices" title={`Supplier prices (${prices.length})`} text="Supplier, Item, Part No, Price, Unit, Note, Last Updated, Previous Price. Can be imported back." />
-      <Card id="history" title="History (all entries)" text="Date, Time, Type, Item, Part No, Qty, Unit, Stock After, Supplier, Note, By. For records only — history cannot be imported." />
-      <div className="card pad">
-        <b>Blank import template</b>
-        <p className="muted tiny">An Excel file with the correct headings for stock, stock-by-supplier, supplier prices and suppliers.</p>
-        <button className="btn" onClick={() => downloadXlsx('import-template.xlsx', TEMPLATE_SHEETS)}>
-          <Icon name="download" size={18} /> Download template
-        </button>
-      </div>
-    </>
+    <div className="card pad">
+      <b>Save a backup</b>
+      <p className="muted tiny">
+        Saves everything in one file: all items with their stock, your suppliers, and the quantity of every supplier’s item at each location.
+        Keep the file safe, for example in Google Drive.
+      </p>
+      <p>
+        <b>{items.length}</b> items · <b>{suppliers.length}</b> suppliers · <b>{locStock.length}</b> location entries
+      </p>
+      <button className="btn primary big" onClick={run} disabled={busy}>
+        <Icon name="download" size={20} /> {busy ? 'Preparing…' : 'Download full backup'}
+      </button>
+      <p className="muted tiny">History is not part of the backup. Download it from the History tab.</p>
+    </div>
   );
 }

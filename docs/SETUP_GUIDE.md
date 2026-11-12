@@ -67,7 +67,7 @@ Firebase → **Authentication → Settings → Authorized domains → Add domain
 Open your Vercel address in Chrome on the owner's phone → **Sign in with Google** using the **owner email from Step 5**. You land in the app as **Owner** (you will see a *Suppliers* tab).
 
 ## Step 11 — Load your stock diary data
-1. Open the app → **More → Import**.
+1. Open the app → **More → Restore** (load a backup file saved with Backup).
 2. Choose **Stock** → **Choose file** → select `STOCK_MANAGEMENT_MAYAPURI.xlsx` (a copy is in the `sample-data` folder).
 3. It shows e.g. **25 new, 0 skipped, 0 invalid** and the supplier columns it found. Check, then **Confirm import**.
 4. Then choose **Supplier names** → same file, sheet *Supplier* → Confirm.
@@ -106,7 +106,7 @@ About 1 GB of data, 50,000 reads and 20,000 writes per day. A shop with a few hu
 | PocketBase / self-hosting | free software | Needs a server you must keep running |
 
 ## Back-ups
-Once a month: **More → Export & template** → download Stock, Supplier prices and History. Keep them in Google Drive.
+Once a month: **More → Backup** → Download full backup (stock, suppliers, locations), and download the history file from the History tab. Keep them in Google Drive.
 
 ## If something goes wrong
 * **"Firebase settings are missing"** → a Vercel variable is missing/mistyped (Step 8). Fix it → *Deployments → Redeploy*.

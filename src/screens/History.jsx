@@ -2,7 +2,8 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Timestamp, collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { useAuth } from '../auth.jsx';
-import { useToast, Icon, Empty, Spinner } from '../components/ui.jsx';
+import { useToast, Icon, Empty, Spinner, Sheet } from '../components/ui.jsx';
+import PurgeHistory from './PurgeHistory.jsx';
 import MoveRow from '../components/MoveRow.jsx';
 import { fmtDate } from '../lib/format.js';
 import { applyHistoryFilters, resolveDateRange } from '../lib/historyFilter.js';
@@ -24,6 +25,7 @@ export default function History() {
   const [busy, setBusy] = useState(false);
   const { items, suppliers } = useData();
   const [showFilters, setShowFilters] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [staff, setStaff] = useState('');
   const [supplier, setSupplier] = useState('');
   const [item, setItem] = useState('');
@@ -190,9 +192,19 @@ export default function History() {
         </div>
       )}
       {isOwner && (
-        <button className="btn" onClick={exportCsv} disabled={busy}>
-          <Icon name="download" size={18} /> {busy ? 'Preparing…' : 'Download full history (CSV)'}
-        </button>
+        <div className="row gap">
+          <button className="btn grow" onClick={exportCsv} disabled={busy}>
+            <Icon name="download" size={18} /> {busy ? 'Preparing…' : 'Download history file'}
+          </button>
+          <button className="btn danger-o grow" onClick={() => setDeleteOpen(true)}>
+            <Icon name="trash" size={18} /> Delete history
+          </button>
+        </div>
+      )}
+      {deleteOpen && (
+        <Sheet title="Delete history" onClose={() => setDeleteOpen(false)} tall>
+          <PurgeHistory />
+        </Sheet>
       )}
       {moves === null ? (
         <Spinner label="Loading history…" />
@@ -219,7 +231,6 @@ export default function History() {
           )}
         </div>
       )}
-      <p className="tiny muted center">History cannot be edited. Only the owner can remove entries older than 30 days (More → Purge old history).</p>
     </>
   );
 }

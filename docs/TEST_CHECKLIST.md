@@ -82,3 +82,11 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] History → Filters: choose staff + supplier + item + location + custom dates together; only matching entries remain. Clear all filters restores the list.
 - [ ] Member: Suppliers tab opens; can add/edit a supplier, set a location, IN / OUT / Move. No Delete supplier button.
 - [ ] Member: Rules playground delete of `/suppliers/x`, `/items/x`, `/movements/x` → Denied. Delete of a `/locStock` row with quantity above 0 → Denied.
+
+## Backup, Restore, Delete history, History cards
+- [ ] More → Backup → Download full backup → file is named Mayapuri_Stock_Backup-<date>; it has Stock, Suppliers and Locations sheets.
+- [ ] More → Restore with that file on an EMPTY test project: items, suppliers and location quantities come back; supplier and total stock match.
+- [ ] Restore again on the same data: "Nothing new to restore".
+- [ ] History tab (owner): "Delete history" opens; default range is Last day (24 hours); a warning popup asks to confirm (no typing). Members do not see the button.
+- [ ] History card order: item, supplier, "Supplier stock: old + qty = new", location, member - date time. Old entries show "Total stock".
+- [ ] Suppliers: quantity box starts at 0; after IN / OUT the item shows "Old Supplier Stock".

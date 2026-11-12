@@ -1,3 +1,12 @@
+# Changes: History cards, Delete history, Backup & Restore
+
+**Publish the updated `firestore.rules`** (history entries can now carry the supplier's quantity before / after).
+
+* **History card**: item, supplier, "Supplier stock: old ± qty = new", location, member - date and time. New entries store the supplier's before / after quantity; older entries show the item's total instead ("Total stock"). The footer sentence is removed.
+* **Delete history** moved to the History tab (owner only), default range Last day (24 hours), confirmation by a warning popup instead of typing. Removed from More.
+* **Backup / Restore** replace Import / Export: one full backup file (stock, suppliers, locations) named Mayapuri_Stock_Backup-<date>. Restore only adds what is missing and never changes existing data. Supplier prices and the blank template are gone from the screens. File-type words (CSV / Excel) are removed from the screens.
+* **Suppliers**: quantity box starts at 0 and resets to 0 after each IN / OUT; the item shows "Old Supplier Stock" for the last change.
+
 # Changes: Suppliers tab on mobile
 
 * The app opens on the **Suppliers** tab.

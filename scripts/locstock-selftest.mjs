@@ -5,6 +5,7 @@ import { LOCATION_VALUES } from '../src/lib/locations.js';
 import { locDocId, supplierItemView, unlocated, isAssociated, groupByItem } from '../src/lib/stockLoc.js';
 import { validateLocMove, planOutAny } from '../src/lib/moveRules.js';
 import { applyHistoryFilters, resolveDateRange } from '../src/lib/historyFilter.js';
+import { findItem, parseLocationsSheet, parseSuppliersSheet } from '../src/lib/restore.js';
 
 // 1) the location list in the app and in firestore.rules must be identical
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -80,4 +81,22 @@ assert.deepEqual(hids({ q: 'gasket', location: W }), [4]);
 const r = resolveDateRange('custom', '2026-10-01', '2026-10-05');
 assert.equal(r.to.getDate(), 6); // end date is included
 assert.ok(resolveDateRange('custom', '2026-10-05', '2026-10-01').error);
+
+// 8) backup / restore reading
+const sup = parseSuppliersSheet([['Supplier', 'Address', 'Description'], ['Arjun', 'Delhi', 'Silencers'], ['arjun', '', ''], ['Bobby', '', '']]);
+assert.deepEqual(sup.map((x) => x.name), ['Arjun', 'Bobby']);
+assert.equal(sup[0].address, 'Delhi');
+const locs = parseLocationsSheet([
+  ['Supplier', 'Item', 'Part No', 'Location', 'Quantity', 'Unit'],
+  ['Arjun', 'Silencer', 'S1', 'Godown → Ground Floor', 8, 'pcs'],
+  ['Arjun', 'Silencer', 'S1', 'Mayapuri Shop → W-82/2', '12', 'pcs'],
+  ['Arjun', 'Silencer', 'S1', 'Nowhere', 5, 'pcs'],
+  ['Arjun', 'Silencer', 'S1', 'Godown → Back Gali Shop', 0, 'pcs'],
+]);
+assert.equal(locs.rows.length, 2); assert.equal(locs.invalid, 2);
+assert.equal(locs.rows[0].location, 'Godown > Ground Floor');
+const its = [{ id: 'a', name: 'Silencer', partNo: 'S1' }, { id: 'b', name: 'Gasket', partNo: '' }];
+assert.equal(findItem(its, 'silencer ', 's1').id, 'a');
+assert.equal(findItem(its, 'GASKET', '').id, 'b');
+assert.equal(findItem(its, 'Nothing', ''), null);
 console.log('LOCATION SELF-TESTS PASSED');

@@ -1,90 +1,122 @@
 import { useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { importPrices, importStock, importSuppliers } from '../db.js';
-import { analyzePrices, analyzeStock, analyzeSuppliers, guessSheet, MAX_ROWS, planPrices, planStock, planSuppliers, readSpreadsheet } from '../lib/importer.js';
-import { downloadXlsx } from '../lib/csv.js';
-import { TEMPLATE_SHEETS } from '../lib/exporter.js';
+import { importStock, moveStock, restoreSuppliers } from '../db.js';
+import { analyzeStock, guessSheet, MAX_ROWS, planStock, readSpreadsheet } from '../lib/importer.js';
+import { findItem, findSheet, parseLocationsSheet, parseSuppliersSheet, sameName } from '../lib/restore.js';
+import { rowsForSupplier } from '../lib/stockLoc.js';
 import { slug } from '../lib/text.js';
-import { fmtNum, fmtINR } from '../lib/format.js';
-import { Icon, Segmented, useToast } from '../components/ui.jsx';
+import { Icon, useToast } from '../components/ui.jsx';
 
-const KINDS = [
-  { value: 'stock', label: 'Stock' },
-  { value: 'prices', label: 'Supplier prices' },
-  { value: 'suppliers', label: 'Supplier names' },
-];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export default function Import() {
+/** Restore: reads a backup file and adds whatever is missing. Existing items are never changed. */
+export default function Restore() {
   const auth = useAuth();
-  const { items, prices, suppliers, online } = useData();
+  const { items, suppliers, locStock, online } = useData();
   const toast = useToast();
   const fileRef = useRef(null);
-  const [kind, setKind] = useState('stock');
+  const live = useRef({ items, locStock });
+  live.current = { items, locStock };
   const [sheets, setSheets] = useState(null);
   const [fileName, setFileName] = useState('');
-  const [sheetIdx, setSheetIdx] = useState(0);
-  const [off, setOff] = useState({}); // supplier columns switched off
+  const [readErr, setReadErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
-  const [readErr, setReadErr] = useState('');
-
-  const rows = sheets?.[sheetIdx]?.rows;
-
-  const analysis = useMemo(() => {
-    if (!rows) return null;
-    if (kind === 'stock') return analyzeStock(rows);
-    if (kind === 'prices') return analyzePrices(rows);
-    return analyzeSuppliers(rows);
-  }, [rows, kind]);
+  const [result, setResult] = useState('');
 
   const supplierIds = useMemo(() => new Set(suppliers.map((s) => s.id)), [suppliers]);
 
-  const plan = useMemo(() => {
-    if (!analysis || analysis.error) return null;
-    if (kind === 'stock') {
-      const enabled = analysis.supplierCols.filter((c) => c.enabled && !off[c.idx]).map((c) => c.idx);
-      return planStock(analysis, enabled, items);
-    }
-    if (kind === 'prices') return planPrices(analysis, new Map(prices.map((p) => [p.id, p])));
-    return planSuppliers(analysis, supplierIds);
-  }, [analysis, kind, items, prices, supplierIds, off]);
+  // what the file would add
+  const preview = useMemo(() => {
+    if (!sheets) return null;
+    const stockSheet = sheets[guessSheet(sheets, 'stock')];
+    const analysis = analyzeStock(stockSheet?.rows || []);
+    const stockPlan = analysis.error ? null : planStock(analysis, analysis.supplierCols.filter((c) => c.enabled).map((c) => c.idx), items);
+    const supSheet = findSheet(sheets, /^supplier/i);
+    const newSuppliers = parseSuppliersSheet(supSheet?.rows).filter((s) => !supplierIds.has(slug(s.name)));
+    const locSheet = findSheet(sheets, /^location/i);
+    const locations = parseLocationsSheet(locSheet?.rows);
+    return { analysis, stockPlan, newSuppliers, locations };
+  }, [sheets, items, supplierIds]);
 
   async function onFile(e) {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
     setReadErr('');
-    if (!/\.(xlsx|xls|csv)$/i.test(f.name)) return setReadErr('Please choose an .xlsx, .xls or .csv file.');
+    setResult('');
     try {
       const s = await readSpreadsheet(f);
-      if (!s.length) return setReadErr('That file has no sheets.');
+      if (!s.length) return setReadErr('That file is empty.');
       setSheets(s);
       setFileName(f.name);
-      setOff({});
-      setSheetIdx(guessSheet(s, kind));
     } catch (err) {
-      setReadErr(`Could not read that file: ${err.message}`);
+      setReadErr(`Could not read that file. Please choose a backup file saved from this app. (${err.message})`);
     }
   }
 
-  const adds = plan ? plan.newRows.length + (plan.updatedRows?.length || 0) : 0;
-  const canConfirm = plan && !plan.tooMany && adds > 0 && !busy;
+  const addItems = preview?.stockPlan?.newRows.length || 0;
+  const addSuppliers = preview?.newSuppliers.length || 0;
+  const locCount = preview?.locations.rows.length || 0;
+  const tooMany = preview?.stockPlan?.tooMany;
+  const nothing = !addItems && !addSuppliers && !locCount;
 
-  async function confirm() {
-    if (!online) return toast('Importing needs an internet connection.', 'err');
+  async function restore() {
+    if (!online) return toast('Restore needs an internet connection.', 'err');
     setBusy(true);
-    const onProgress = (d, t) => setProgress(`Saved ${d} of ${t}…`);
+    setResult('');
+    const user = { uid: auth.fbUser.uid, name: auth.name, email: auth.fbUser.email };
     try {
-      const user = { uid: auth.fbUser.uid, name: auth.name, email: auth.fbUser.email };
-      if (kind === 'stock') await importStock({ rows: plan.newRows, user, existingSupplierIds: supplierIds, onProgress });
-      else if (kind === 'prices') await importPrices({ rows: [...plan.newRows, ...plan.updatedRows], user, existingSupplierIds: supplierIds, onProgress });
-      else await importSuppliers({ rows: plan.newRows, onProgress });
-      toast(`Imported ${adds} row${adds === 1 ? '' : 's'}`);
+      const newSup = preview.newSuppliers;
+      if (newSup.length) await restoreSuppliers({ rows: newSup });
+
+      const rows = preview.stockPlan?.newRows || [];
+      if (rows.length) {
+        const known = new Set([...supplierIds, ...newSup.map((s) => slug(s.name))]);
+        await importStock({ rows, user, existingSupplierIds: known, onProgress: (d, t) => setProgress(`Adding items… ${d} of ${t}`) });
+        // wait until the new items are visible in the app before placing them at locations
+        for (let i = 0; i < 30; i++) {
+          const have = live.current.items;
+          if (rows.every((r) => findItem(have, r.name, r.partNo))) break;
+          await wait(500);
+        }
+      }
+
+      let placed = 0;
+      let skipped = 0;
+      const local = new Map(); // item id -> its location rows, kept up to date while restoring
+      const locRows = preview.locations.rows;
+      for (let i = 0; i < locRows.length; i++) {
+        setProgress(`Placing stock at locations… ${i + 1} of ${locRows.length}`);
+        const r = locRows[i];
+        const item = findItem(live.current.items, r.item, r.partNo);
+        if (!item) {
+          skipped++;
+          continue;
+        }
+        if (!local.has(item.id)) local.set(item.id, live.current.locStock.filter((x) => x.itemId === item.id));
+        const itemRows = local.get(item.id);
+        if (rowsForSupplier(itemRows, r.supplier).some((x) => x.location === r.location)) {
+          skipped++; // already there
+          continue;
+        }
+        try {
+          await moveStock({ item, supplier: r.supplier, from: '', to: r.location, qty: r.qty, itemRows, note: 'Restored from backup', user });
+          itemRows.push({ id: `${slug(r.supplier)}__${item.id}__${slug(r.location)}`, itemId: item.id, supplier: r.supplier, location: r.location, qty: r.qty });
+          placed++;
+        } catch {
+          skipped++;
+        }
+      }
+
+      const msg = `Restore finished. Added ${rows.length} item${rows.length === 1 ? '' : 's'}, ${newSup.length} supplier${newSup.length === 1 ? '' : 's'} and ${placed} location entr${placed === 1 ? 'y' : 'ies'}.${skipped ? ` ${skipped} location entr${skipped === 1 ? 'y was' : 'ies were'} skipped (already present, or the stock did not match).` : ''}`;
+      setResult(msg);
+      toast('Restore finished');
       setSheets(null);
       setFileName('');
     } catch (err) {
-      toast(`Import stopped: ${err.message}. Rows saved before the error stay saved; importing again skips them.`, 'err', 12000);
+      toast(`Restore stopped: ${err.message}. What was added stays saved; you can run the restore again and it will skip it.`, 'err', 12000);
     }
     setProgress('');
     setBusy(false);
@@ -92,142 +124,46 @@ export default function Import() {
 
   return (
     <>
-      <Segmented
-        value={kind}
-        onChange={(k) => {
-          setKind(k);
-          if (sheets) setSheetIdx(guessSheet(sheets, k));
-        }}
-        options={KINDS}
-      />
       <p className="muted tiny">
-        {kind === 'stock' && 'Adds new items only — items already in the app are never changed. Works with a plain list (Name, Part No, Qty…) or a products × suppliers table like your diary sheet.'}
-        {kind === 'prices' && 'Needs Supplier, Item and Price (or Rate) columns. New prices are added; an existing price is changed only if the amount is different.'}
-        {kind === 'suppliers' && 'Needs a Supplier column; a Reference / Note column is optional.'} Up to {MAX_ROWS} rows at a time.
+        Choose a backup file you saved earlier (More → Backup). Restore <b>only adds what is missing</b>: items, suppliers and locations that are already in the app are never changed.
       </p>
-
-      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden onChange={onFile} />
-      <div className="row gap">
-        <button className="btn primary big grow" onClick={() => fileRef.current.click()} disabled={busy}>
-          <Icon name="upload" size={20} /> {fileName ? 'Choose a different file' : 'Choose file'}
-        </button>
-        <button className="btn" onClick={() => downloadXlsx('import-template.xlsx', TEMPLATE_SHEETS)}>
-          <Icon name="download" size={18} /> Template
-        </button>
-      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={onFile} />
+      <button className="btn primary big" onClick={() => fileRef.current.click()} disabled={busy}>
+        <Icon name="upload" size={20} /> {fileName ? 'Choose a different file' : 'Choose backup file'}
+      </button>
       {readErr && <div className="notice err">{readErr}</div>}
+      {result && <div className="notice">{result}</div>}
 
-      {sheets && (
+      {preview && (
         <div className="card pad">
-          <div className="muted tiny">File: <b>{fileName}</b></div>
-          {sheets.length > 1 && (
-            <label className="field inline">
-              <span>Sheet to import</span>
-              <select value={sheetIdx} onChange={(e) => { setSheetIdx(+e.target.value); setOff({}); }}>
-                {sheets.map((s, i) => (
-                  <option key={s.name} value={i}>{s.name} ({s.rows.length} rows)</option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {analysis?.error && <div className="notice err">{analysis.error} Try another sheet or another import type above.</div>}
-
-          {plan && (
+          <div className="muted tiny">
+            File: <b>{fileName}</b>
+          </div>
+          {preview.analysis.error && !addSuppliers && !locCount ? (
+            <div className="notice err">This does not look like a backup file from this app.</div>
+          ) : (
             <>
-              {kind === 'stock' && analysis.supplierCols.length > 0 && (
-                <div className="supcols">
-                  <b>Supplier columns found</b>
-                  <p className="muted tiny">Each number is stock held from that supplier. Untick anything that is not a supplier.</p>
-                  {analysis.supplierCols.map((c) => (
-                    <label key={c.idx} className="check">
-                      <input
-                        type="checkbox"
-                        checked={c.enabled && !off[c.idx]}
-                        disabled={!c.enabled}
-                        onChange={(e) => setOff((o) => ({ ...o, [c.idx]: !e.target.checked }))}
-                      />
-                      <span>{c.name}</span>
-                      {!c.enabled && <span className="muted tiny"> (not numbers — ignored)</span>}
-                    </label>
-                  ))}
-                </div>
+              <p>
+                New items to add: <b>{addItems}</b>
+                {preview.stockPlan?.skipped.length ? <span className="muted"> ({preview.stockPlan.skipped.length} already in the app)</span> : null}
+                <br />
+                New suppliers to add: <b>{addSuppliers}</b>
+                <br />
+                Location entries to restore: <b>{locCount}</b>
+              </p>
+              {preview.stockPlan?.invalid.length > 0 && (
+                <div className="notice err">{preview.stockPlan.invalid.length} item row(s) in the file have a problem and will be skipped.</div>
               )}
-
-              <div className="summary" role="status">
-                <span className="pill good">{plan.newRows.length} new</span>
-                {plan.updatedRows && <span className="pill t-EDIT">{plan.updatedRows.length} price changed</span>}
-                <span className="pill">{plan.skipped.length} skipped</span>
-                <span className={`pill ${plan.invalid.length ? 'bad' : ''}`}>{plan.invalid.length} invalid</span>
-              </div>
-
-              {plan.tooMany && (
-                <div className="notice err">
-                  This sheet has {plan.total} rows. The limit is {MAX_ROWS} per import. Split the file into smaller parts and import them one by one.
-                </div>
-              )}
-
-              <Preview title="Will be added" rows={[...plan.newRows, ...(plan.updatedRows || [])]} kind={kind} open />
-              <Problems title="Skipped" list={plan.skipped} />
-              <Problems title="Invalid (will not be imported)" list={plan.invalid} bad />
-
-              <button className="btn primary big" disabled={!canConfirm} onClick={confirm}>
-                {busy ? progress || 'Importing…' : adds ? `Confirm import of ${adds} row${adds === 1 ? '' : 's'}` : 'Nothing to import'}
+              {tooMany && <div className="notice err">The file has more than {MAX_ROWS} items. Please restore it in smaller parts.</div>}
+              {preview.locations.tooMany && <div className="notice err">Only the first part of the location entries will be restored.</div>}
+              <button className="btn primary big" onClick={restore} disabled={busy || nothing || tooMany}>
+                {busy ? progress || 'Restoring…' : 'Restore now'}
               </button>
-              {!online && <div className="notice err">You are offline. Importing needs internet.</div>}
+              {nothing && <p className="muted tiny">Nothing new to restore. Everything in this file is already in the app.</p>}
             </>
           )}
         </div>
       )}
     </>
-  );
-}
-
-function Preview({ title, rows, kind, open }) {
-  const [o, setO] = useState(!!open);
-  if (!rows.length) return null;
-  return (
-    <details open={o} onToggle={(e) => setO(e.target.open)} className="det">
-      <summary>{title} ({rows.length})</summary>
-      <ul className="plain">
-        {rows.slice(0, 40).map((r) => (
-          <li key={r.rowNo + r.name + (r.item || '')}>
-            {kind === 'stock' && (
-              <>
-                <b>{r.name}</b> <span className="muted">— {fmtNum(r.qty)} {r.unit}{Object.keys(r.bySupplier).length ? ` (${Object.entries(r.bySupplier).map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}</span>
-              </>
-            )}
-            {kind === 'prices' && (
-              <>
-                <b>{r.supplier}</b> — {r.item} <span className="muted">{fmtINR(r.price)}{r.prevPrice != null ? ` (was ${fmtINR(r.prevPrice)})` : ''}</span>
-              </>
-            )}
-            {kind === 'suppliers' && (
-              <>
-                <b>{r.name}</b> <span className="muted">{r.note}</span>
-              </>
-            )}
-          </li>
-        ))}
-        {rows.length > 40 && <li className="muted">…and {rows.length - 40} more</li>}
-      </ul>
-    </details>
-  );
-}
-
-function Problems({ title, list, bad }) {
-  if (!list.length) return null;
-  return (
-    <details className="det">
-      <summary className={bad ? 'bad-t' : ''}>{title} ({list.length})</summary>
-      <ul className="plain">
-        {list.slice(0, 60).map((r) => (
-          <li key={r.rowNo + r.name}>
-            <span className="muted">Row {r.rowNo}:</span> <b>{r.name}</b> — {r.reason}
-          </li>
-        ))}
-        {list.length > 60 && <li className="muted">…and {list.length - 60} more</li>}
-      </ul>
-    </details>
   );
 }

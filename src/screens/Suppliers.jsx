@@ -197,6 +197,7 @@ export default function Suppliers() {
 // ------------------------------------------------------------ one item of a supplier
 function SupplierItem({ item, view, supplier, itemRows, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [last, setLast] = useState(null); // { type, qty, before, after, place } of the latest IN / OUT here
   if (!open) {
     // collapsed: item name and this supplier's quantity only; tap to see locations and IN / OUT
     return (
@@ -225,19 +226,30 @@ function SupplierItem({ item, view, supplier, itemRows, defaultOpen = false }) {
           </span>
         </div>
       </div>
+      {last && (
+        <div className="si-last" role="status">
+          <div>
+            Last change: <b>{last.type} {fmtNum(last.qty)} {item.unit}</b> at {last.place}
+          </div>
+          <div>
+            Old Supplier Stock: <b>{fmtNum(last.before)} {item.unit}</b> → now <b>{fmtNum(last.after)} {item.unit}</b>
+          </div>
+          <button type="button" className="si-last-x" onClick={() => setLast(null)} aria-label="Hide">×</button>
+        </div>
+      )}
       {view.lines.length === 0 && <div className="muted tiny">No location chosen yet. Use “Edit supplier” to add one.</div>}
       {view.lines.map((line) => (
-        <LocationLine key={line.id} item={item} line={line} supplier={view.key || supplier} itemRows={itemRows} />
+        <LocationLine key={line.id} item={item} line={line} supplier={view.key || supplier} itemRows={itemRows} supplierStock={view.supplierStock} onChanged={setLast} />
       ))}
     </div>
   );
 }
 
 // ------------------------------------------- one Supplier + Item + Location row, with IN / OUT
-function LocationLine({ item, line, supplier, itemRows }) {
+function LocationLine({ item, line, supplier, itemRows, supplierStock, onChanged }) {
   const auth = useAuth();
   const toast = useToast();
-  const [qtyText, setQtyText] = useState('1');
+  const [qtyText, setQtyText] = useState('0');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -270,6 +282,9 @@ function LocationLine({ item, line, supplier, itemRows }) {
       return setErr(e.message);
     }
     setErr('');
+    const afterSupplier = Math.round((type === 'IN' ? supplierStock + n : supplierStock - n) * 1000) / 1000;
+    onChanged?.({ type, qty: n, before: supplierStock, after: afterSupplier, place: placeText(line.location) });
+    setQtyText('0');
     setBusy(true); // the new quantity arrives a moment later; stops an accidental double tap
     clearTimeout(busyTimer.current);
     busyTimer.current = setTimeout(() => setBusy(false), 800);

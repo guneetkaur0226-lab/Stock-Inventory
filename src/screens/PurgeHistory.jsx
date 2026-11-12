@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { countHistory, fetchAllMovements, purgeHistory } from '../db.js';
-import { downloadCsv } from '../lib/csv.js';
-import { historyRows } from '../lib/exporter.js';
+import { countHistory, purgeHistory } from '../db.js';
 import { Field, Icon, Spinner, useConfirm, useToast } from '../components/ui.jsx';
 
 const DAY = 86400000;
@@ -20,7 +18,6 @@ const RANGE_OPTIONS = [
   { value: 'custom', group: 'Your own dates', label: 'Custom date range', kind: 'custom' },
 ];
 const GROUPS = [...new Set(RANGE_OPTIONS.map((o) => o.group))];
-const WORD = 'PURGE';
 
 const fmtDay = (d) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtDayTime = (d) => d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -56,17 +53,16 @@ function resolveRange(choice, now, customFrom, customTo) {
   return { from: f, to, label: same ? `on ${fmtDay(f)}` : `from ${fmtDay(f)} to ${fmtDay(t)} (both days included)`, short: same ? fmtDay(f) : `${fmtDay(f)} – ${fmtDay(t)}`, recent: true };
 }
 
-/** Owner only. Deletes OLD history entries to free Firestore storage. Never touches stock. */
+/** Owner only. Deletes history entries in a chosen range to free storage. Never touches stock. */
 export default function PurgeHistory() {
   const { isOwner } = useAuth();
   const { items, online } = useData();
   const toast = useToast();
   const confirm = useConfirm();
-  const [choice, setChoice] = useState('o180');
+  const [choice, setChoice] = useState('d1');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [counts, setCounts] = useState(null); // { total, old } | null while loading | 'err' | 'none' (no valid range yet)
-  const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState('');
   const [progress, setProgress] = useState(0);
   const [tick, setTick] = useState(0);
@@ -94,26 +90,14 @@ export default function PurgeHistory() {
     };
   }, [isOwner, online, range.error, fromMs, toMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!isOwner) return <div className="notice err">Only the owner can purge history.</div>;
-
-  async function backup() {
-    setBusy('backup');
-    try {
-      const all = await fetchAllMovements();
-      downloadCsv(`history-backup-${new Date().toISOString().slice(0, 10)}.csv`, historyRows(all));
-      toast(`Backup downloaded (${all.length} entries)`);
-    } catch (e) {
-      toast(`Backup failed: ${e.message}. You need internet for this.`, 'err');
-    }
-    setBusy('');
-  }
+  if (!isOwner) return <div className="notice err">Only the owner can delete history.</div>;
 
   async function run() {
     const n = counts?.old || 0;
     const ok = await confirm({
       title: 'Delete history?',
-      message: `Up to ${n} history entries ${range.label} will be permanently deleted. ${includeLatest ? 'This INCLUDES each item’s latest history entry, so nothing in the range is kept.' : 'Each item’s latest history entry is kept.'} Your stock, items, suppliers and prices are NOT touched. This cannot be undone.`,
-      okText: 'Delete history',
+      message: `Warning: up to ${n} history entries ${range.label} will be permanently deleted. ${includeLatest ? 'This INCLUDES each item’s latest history entry, so nothing in the range is kept.' : 'Each item’s latest history entry is kept.'} Your stock, items, suppliers and prices are NOT touched. This cannot be undone.`,
+      okText: 'Yes, delete',
       danger: true,
     });
     if (!ok) return;
@@ -122,7 +106,6 @@ export default function PurgeHistory() {
     try {
       const r = await purgeHistory({ from: range.from, to: range.to, keepIds, onProgress: setProgress });
       toast(r.more ? `Deleted ${r.deleted} entries. Run it again to delete more.` : `Done. Deleted ${r.deleted} history entries.`);
-      setTyped('');
       setTick((t) => t + 1);
     } catch (e) {
       toast(e.code === 'resource-exhausted' ? 'Daily free limit reached. Try again tomorrow.' : `Could not delete: ${e.message}`, 'err');
@@ -130,30 +113,21 @@ export default function PurgeHistory() {
     setBusy('');
   }
 
-  const ready = typed.trim().toUpperCase() === WORD && counts && typeof counts === 'object' && counts.old > 0 && !range.error && online && !busy;
+  const ready = counts && typeof counts === 'object' && counts.old > 0 && !range.error && online && !busy;
 
   return (
     <>
       <div className="card pad">
-        <b>Free up storage</b>
+        <b>Delete history to free up storage</b>
         <p className="muted tiny">
-          Deletes only <b>history entries</b> (the log in the History tab) inside the time range you choose. Your <b>current stock, items, suppliers and prices are never touched</b>.
-          By default each item’s most recent history entry is kept, so every item still shows its last change. You can switch that off below to delete the complete history.
+          This removes only the entries shown in the History tab. Your <b>current stock, items and suppliers are never touched</b>. Tip: save a backup first (More → Backup).
         </p>
       </div>
 
-      <div className="card pad">
-        <b>1. Download a backup first (recommended)</b>
-        <p className="muted tiny">Saves every history entry as a CSV file you can keep in Google Drive.</p>
-        <button className="btn" onClick={backup} disabled={!!busy || !online}>
-          <Icon name="download" size={18} /> {busy === 'backup' ? 'Preparing…' : 'Download full history (CSV)'}
-        </button>
-      </div>
-
       <div className="card pad form">
-        <b>2. Choose which history to delete</b>
+        <b>Choose which history to delete</b>
         <Field label="Time range" htmlFor="purge-range">
-          <select id="purge-range" value={choice} onChange={(e) => { setChoice(e.target.value); setTyped(''); }} disabled={!!busy}>
+          <select id="purge-range" value={choice} onChange={(e) => setChoice(e.target.value)} disabled={!!busy}>
             {GROUPS.map((g) => (
               <optgroup key={g} label={g}>
                 {RANGE_OPTIONS.filter((o) => o.group === g).map((o) => (
@@ -166,10 +140,10 @@ export default function PurgeHistory() {
         {choice === 'custom' && (
           <div className="grid2">
             <Field label="From date" htmlFor="purge-from">
-              <input id="purge-from" type="date" max={isoDay(new Date())} value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setTyped(''); }} disabled={!!busy} />
+              <input id="purge-from" type="date" max={isoDay(new Date())} value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} disabled={!!busy} />
             </Field>
             <Field label="To date (included)" htmlFor="purge-to">
-              <input id="purge-to" type="date" max={isoDay(new Date())} value={customTo} onChange={(e) => { setCustomTo(e.target.value); setTyped(''); }} disabled={!!busy} />
+              <input id="purge-to" type="date" max={isoDay(new Date())} value={customTo} onChange={(e) => setCustomTo(e.target.value)} disabled={!!busy} />
             </Field>
           </div>
         )}
@@ -179,10 +153,10 @@ export default function PurgeHistory() {
           <p className="muted tiny">Will delete history entries <b>{range.label}</b>.</p>
         )}
         {range.recent && !range.error && (
-          <p className="muted tiny"><b>Heads up:</b> these are recent entries. Download the backup in step 1 first if you may need them.</p>
+          <p className="muted tiny"><b>Heads up:</b> these are recent entries. Save a backup first (More → Backup) if you may need them.</p>
         )}
         {!online ? (
-          <p className="muted tiny">You are offline. Connect to the internet to purge history.</p>
+          <p className="muted tiny">You are offline. Connect to the internet to delete history.</p>
         ) : counts === 'none' ? null : counts === null ? (
           <Spinner label="Counting entries…" />
         ) : counts === 'err' ? (
@@ -194,14 +168,11 @@ export default function PurgeHistory() {
         )}
 
         <label className="check">
-          <input type="checkbox" checked={includeLatest} onChange={(e) => { setIncludeLatest(e.target.checked); setTyped(''); }} disabled={!!busy} />
+          <input type="checkbox" checked={includeLatest} onChange={(e) => setIncludeLatest(e.target.checked)} disabled={!!busy} />
           <span>Also delete each item’s latest history entry (delete everything in the range)</span>
         </label>
-        <Field label={`Type ${WORD} to unlock`} htmlFor="purge-word">
-          <input id="purge-word" value={typed} onChange={(e) => setTyped(e.target.value)} autoCapitalize="characters" autoComplete="off" disabled={!!busy} />
-        </Field>
         <button className="btn danger" onClick={run} disabled={!ready}>
-          <Icon name="trash" size={18} /> {busy === 'purge' ? `Deleting… ${progress}` : 'Delete history in this range'}
+          <Icon name="trash" size={18} /> {busy === 'purge' ? `Deleting… ${progress}` : 'Delete history'}
         </button>
         <p className="muted tiny">Up to about 5,000 entries are deleted per run to stay within the free daily limits. If more remain, run it again (tomorrow if a limit message appears).</p>
       </div>

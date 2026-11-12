@@ -87,6 +87,7 @@ export function recordStock({ item, type, qty, supplier = '', location = '', ite
   const args = ['qty', newQty, 'lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid];
 
   let supLabel = supplier;
+  let outChanges = {};
   if (type === 'IN') {
     if (supplier) {
       const { by } = buckets(item);
@@ -96,6 +97,7 @@ export function recordStock({ item, type, qty, supplier = '', location = '', ite
     }
   } else {
     const changes = allocateOut(item, qty, supplier, itemRows);
+    outChanges = changes;
     for (const [k, v] of Object.entries(changes)) args.push(new FieldPath('bySupplier', k), v > 0 ? v : deleteField());
     if (!supplier) supLabel = Object.keys(changes).length === 1 ? Object.keys(changes)[0] : '';
     else supLabel = Object.keys(changes)[0] || supplier;
@@ -104,6 +106,12 @@ export function recordStock({ item, type, qty, supplier = '', location = '', ite
   const batch = writeBatch(db);
   batch.update(itemRef, ...args);
   const move = mvBase(user, item, type, qty, newQty, note, supLabel);
+  if (supLabel) {
+    // what this supplier held before and after, so History can show "old + qty = new"
+    const before = Number(buckets(item).by[supLabel]) || 0;
+    move.supplierBefore = round3(before);
+    move.supplierAfter = type === 'IN' ? round3(before + qty) : round3(outChanges[supLabel] ?? before - qty);
+  }
 
   if (location) {
     // quantity of this supplier + item + location (its own document; never stored on the item)
@@ -255,6 +263,22 @@ export async function importStock({ rows, user, existingSupplierIds, onProgress 
     const batch = writeBatch(db);
     newSuppliers.forEach((n) => batch.set(doc(db, 'suppliers', slug(n)), { name: n, note: '', updatedAt: serverTimestamp() }));
     await batch.commit();
+  }
+}
+
+/** Restore: adds suppliers that are not in the app yet (never changes existing ones). */
+export async function restoreSuppliers({ rows, onProgress }) {
+  let done = 0;
+  for (const part of chunk(rows, 400)) {
+    const batch = writeBatch(db);
+    part.forEach((r) => {
+      const body = { name: clean(r.name, 80), note: clean(r.note, 500), updatedAt: serverTimestamp() };
+      if (clean(r.address, 300)) body.address = clean(r.address, 300);
+      batch.set(doc(db, 'suppliers', slug(r.name)), body);
+    });
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, rows.length);
   }
 }
 

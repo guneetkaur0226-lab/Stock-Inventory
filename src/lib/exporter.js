@@ -40,6 +40,27 @@ export function historyRows(moves) {
   ];
 }
 
+/** Everything in one backup file: stock, suppliers, and quantity per supplier + item + location. */
+export function backupSheets({ items, suppliers, locStock }) {
+  const names = new Map();
+  suppliers.forEach((s) => names.set(s.name.toLowerCase(), s));
+  items.forEach((i) => Object.keys(i.bySupplier || {}).forEach((k) => !names.has(k.toLowerCase()) && names.set(k.toLowerCase(), { name: k })));
+  const supplierRows = [...names.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s) => [s.name, s.address || '', s.note || '']);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const locRows = locStock
+    .filter((r) => byId.has(r.itemId))
+    .map((r) => ({ r, it: byId.get(r.itemId) }))
+    .sort((a, b) => a.r.supplier.localeCompare(b.r.supplier) || a.it.name.localeCompare(b.it.name) || a.r.location.localeCompare(b.r.location))
+    .map(({ r, it }) => [r.supplier, it.name, it.partNo, locationText(r.location), r.qty, it.unit]);
+  return [
+    { name: 'Stock', rows: stockRows(items) },
+    { name: 'Suppliers', rows: [['Supplier', 'Address', 'Description'], ...supplierRows] },
+    { name: 'Locations', rows: [['Supplier', 'Item', 'Part No', 'Location', 'Quantity', 'Unit'], ...locRows] },
+  ];
+}
+
 export const TEMPLATE_SHEETS = [
   { name: 'Stock', rows: [STOCK_HEAD] },
   { name: 'Stock by supplier', rows: [['Products', 'Supplier 1', 'Supplier 2', 'Supplier 3']] },
