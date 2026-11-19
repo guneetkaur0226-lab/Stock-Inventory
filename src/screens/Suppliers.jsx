@@ -1,7 +1,7 @@
 import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { deleteSupplier, moveStock, recordStock, saveSupplier, validateMove } from '../db.js';
+import { moveStock, recordStock, renameSupplier, saveSupplier, validateMove } from '../db.js';
 import { fmtNum } from '../lib/format.js';
 import { clean, parseNumber, slug } from '../lib/text.js';
 import { makeHaystack, matchesQuery, searchItems } from '../lib/search.js';
@@ -16,9 +16,7 @@ const partLine = (i) => [i.partNo, i.brand, i.model].filter(Boolean).join(' · '
 export default function Suppliers() {
   const auth = useAuth();
   const toast = useToast();
-  const confirm = useConfirm();
-  const { prices, suppliers, items, itemsReady, locStock, online } = useData();
-  const [deleting, setDeleting] = useState('');
+  const { suppliers, items, itemsReady, locStock } = useData();
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q);
   const [open, setOpen] = useState({});
@@ -30,11 +28,10 @@ export default function Suppliers() {
   const supplierNames = useMemo(() => {
     const m = new Map();
     suppliers.forEach((s) => m.set(slug(s.name), s.name));
-    prices.forEach((p) => !m.has(slug(p.supplier)) && m.set(slug(p.supplier), p.supplier));
     items.forEach((i) => Object.keys(i.bySupplier || {}).forEach((k) => !m.has(slug(k)) && m.set(slug(k), k)));
     locStock.forEach((r) => !m.has(slug(r.supplier)) && m.set(slug(r.supplier), r.supplier));
     return [...m.values()].sort((a, b) => a.localeCompare(b));
-  }, [suppliers, prices, items, locStock]);
+  }, [suppliers, items, locStock]);
 
   const searchOptions = useMemo(() => [...supplierNames, ...new Set(items.map((i) => i.name))], [supplierNames, items]);
 
@@ -66,39 +63,6 @@ export default function Suppliers() {
       })
       .filter((s) => s.visible);
   }, [supplierNames, suppliers, items, locStock, rowsByItem, dq]);
-
-  async function removeSupplier(s) {
-    if (!auth.isOwner) return;
-    if (!online) {
-      toast('You are offline. Connect to the internet to delete a supplier.', 'err');
-      return;
-    }
-    const nLoc = locStock.filter((r) => slug(r.supplier) === slug(s.name)).length;
-    const ok = await confirm({
-      title: `Delete supplier “${s.name}”?`,
-      message:
-        `${s.all.length} stock item${s.all.length === 1 ? '' : 's'} are linked to this supplier. Those items and their total quantities are KEPT; only the supplier name${nLoc ? ' and its location quantities' : ''} are removed from them (the quantity then shows as “Other”). ` +
-        'Any saved prices for this supplier are deleted. Old history entries stay. This cannot be undone.',
-      okText: 'Delete supplier',
-      danger: true,
-    });
-    if (!ok) return;
-    setDeleting(s.name);
-    try {
-      const r = await deleteSupplier({
-        name: s.name,
-        docIds: suppliers.filter((x) => slug(x.name) === slug(s.name)).map((x) => x.id),
-        items,
-        prices,
-        locRows: locStock,
-        user: userOf(auth),
-      });
-      toast(`Supplier deleted. ${r.itemsUpdated} stock item${r.itemsUpdated === 1 ? '' : 's'} kept.`);
-    } catch (e) {
-      toast(`Could not delete supplier: ${e.message}. Nothing was lost; you can try again.`, 'err');
-    }
-    setDeleting('');
-  }
 
   return (
     <>
@@ -155,11 +119,6 @@ export default function Suppliers() {
                       >
                         <Icon name="edit" size={20} />
                       </button>
-                      {auth.isOwner && (
-                        <button className="icon-btn danger" onClick={() => removeSupplier(s)} disabled={!!deleting} aria-label={`Delete supplier ${s.name}`}>
-                          <Icon name="trash" size={20} />
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -401,7 +360,8 @@ function MoveSheet({ item, line, supplier, itemRows, onClose }) {
 function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
   const auth = useAuth();
   const toast = useToast();
-  const { items } = useData();
+  const confirm = useConfirm();
+  const { items, locStock, online } = useData();
   const editing = !!start.name;
   const [name, setName] = useState(start.name || '');
   const [address, setAddress] = useState(start.address || '');
@@ -460,7 +420,7 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
     const nm = clean(name, 200);
     if (!nm) e.name = 'Please type the supplier name.';
     else if (nm.length > 80) e.name = 'Supplier name can be at most 80 characters.';
-    else if (!editing && supplierNames.some((s) => slug(s) === slug(nm))) e.name = 'This supplier already exists.';
+    else if (supplierNames.some((s) => slug(s) === slug(nm) && (!editing || slug(s) !== slug(start.name)))) e.name = 'A supplier with this name already exists.';
     if (clean(address).length > 300) e.address = 'Address can be at most 300 characters.';
     if (clean(note).length > 500) e.note = 'Description can be at most 500 characters.';
     for (const p of picked) {
@@ -479,9 +439,23 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
       const sup = supplierKey(it, nm);
       p.entries.filter((x) => !x.rowId).forEach((x) => addSlots.push({ supplier: sup, itemId: p.itemId, location: x.location }));
     }
+    const renamed = editing && auth.isOwner && nm !== start.name;
+    if (renamed) {
+      if (!online) return toast('You are offline. Connect to the internet to rename a supplier.', 'err');
+      const n = items.filter((i) => Object.keys(i.bySupplier || {}).some((k) => slug(k) === slug(start.name))).length;
+      const ok = await confirm({
+        title: `Rename “${start.name}”?`,
+        message: `The name will change to “${nm}” on ${n} item${n === 1 ? '' : 's'} and all its locations. Stock quantities do not change. Old History entries keep the old name.`,
+        okText: 'Rename',
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     try {
-      await saveSupplier({ id: start.id, name: nm, note, address, addSlots, removeSlotIds: removedRows, user: userOf(auth) });
+      if (renamed) {
+        await renameSupplier({ oldName: start.name, newName: nm, docIds: start.id ? [start.id] : [], items, locRows: locStock, user: userOf(auth) });
+      }
+      await saveSupplier({ id: renamed ? slug(nm) : start.id, name: nm, note, address, addSlots, removeSlotIds: removedRows, user: userOf(auth) });
       toast('Supplier saved');
       onClose();
     } catch (err) {
@@ -502,8 +476,13 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
       }
     >
       <form id="supplier-form" className="form" onSubmit={(ev) => { ev.preventDefault(); submit(); }}>
-        <Field label="Supplier name *" error={errs.name} hint={editing ? 'The name cannot be changed because stock is linked to it.' : undefined} htmlFor="s-name">
-          <input id="s-name" value={name} onChange={(ev) => setName(ev.target.value)} readOnly={editing} maxLength={100} autoFocus={!editing} />
+        <Field
+          label="Supplier name *"
+          error={errs.name}
+          hint={editing ? (auth.isOwner ? 'Changing the name updates it on all of this supplier’s items.' : 'Only the owner can rename a supplier.') : undefined}
+          htmlFor="s-name"
+        >
+          <input id="s-name" value={name} onChange={(ev) => setName(ev.target.value)} readOnly={editing && !auth.isOwner} maxLength={100} autoFocus={!editing} />
         </Field>
         <Field label="Address (optional)" error={errs.address} htmlFor="s-addr">
           <input id="s-addr" value={address} onChange={(ev) => setAddress(ev.target.value)} maxLength={320} />

@@ -90,3 +90,8 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] History tab (owner): "Delete history" opens; default range is Last day (24 hours); a warning popup asks to confirm (no typing). Members do not see the button.
 - [ ] History card order: item, supplier, "Supplier stock: old + qty = new", location, member - date time. Old entries show "Total stock".
 - [ ] Suppliers: quantity box starts at 0; after IN / OUT the item shows "Old Supplier Stock".
+
+## Delete / rename / restore repair
+- [ ] More → Delete supplier or stock: deleting a supplier or item asks twice; Cancel at either step deletes nothing.
+- [ ] Delete a test supplier, then More → Restore with a backup taken before: supplier returns WITH its items and location quantities.
+- [ ] Edit supplier (owner): change the name; items and locations show the new name, quantities unchanged. Member sees the name as read-only.

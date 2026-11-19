@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { importStock, moveStock, restoreSuppliers } from '../db.js';
+import { importStock, moveStock, relinkSuppliers, restoreSuppliers } from '../db.js';
 import { analyzeStock, guessSheet, MAX_ROWS, planStock, readSpreadsheet } from '../lib/importer.js';
-import { findItem, findSheet, parseLocationsSheet, parseSuppliersSheet, sameName } from '../lib/restore.js';
+import { findItem, findSheet, parseLocationsSheet, parseSuppliersSheet, planRelinks } from '../lib/restore.js';
 import { rowsForSupplier } from '../lib/stockLoc.js';
 import { slug } from '../lib/text.js';
 import { Icon, useToast } from '../components/ui.jsx';
@@ -37,7 +37,9 @@ export default function Restore() {
     const newSuppliers = parseSuppliersSheet(supSheet?.rows).filter((s) => !supplierIds.has(slug(s.name)));
     const locSheet = findSheet(sheets, /^location/i);
     const locations = parseLocationsSheet(locSheet?.rows);
-    return { analysis, stockPlan, newSuppliers, locations };
+    const enabled = analysis.error ? [] : analysis.supplierCols.filter((c) => c.enabled).map((c) => c.idx);
+    const relinks = planRelinks(analysis, enabled, items);
+    return { analysis, enabled, stockPlan, newSuppliers, locations, relinks };
   }, [sheets, items, supplierIds]);
 
   async function onFile(e) {
@@ -59,8 +61,9 @@ export default function Restore() {
   const addItems = preview?.stockPlan?.newRows.length || 0;
   const addSuppliers = preview?.newSuppliers.length || 0;
   const locCount = preview?.locations.rows.length || 0;
+  const relinkCount = preview?.relinks.length || 0;
   const tooMany = preview?.stockPlan?.tooMany;
-  const nothing = !addItems && !addSuppliers && !locCount;
+  const nothing = !addItems && !addSuppliers && !locCount && !relinkCount;
 
   async function restore() {
     if (!online) return toast('Restore needs an internet connection.', 'err');
@@ -79,6 +82,21 @@ export default function Restore() {
         for (let i = 0; i < 30; i++) {
           const have = live.current.items;
           if (rows.every((r) => findItem(have, r.name, r.partNo))) break;
+          await wait(500);
+        }
+      }
+
+      // items that still exist but lost their supplier (for example a deleted supplier): link them again
+      const relinks = planRelinks(preview.analysis, preview.enabled, live.current.items);
+      if (relinks.length) {
+        await relinkSuppliers({ list: relinks, user, onProgress: (d, t) => setProgress(`Reconnecting suppliers to items… ${d} of ${t}`) });
+        for (let i = 0; i < 30; i++) {
+          const have = live.current.items;
+          const ok = relinks.every(({ item, add }) => {
+            const now = have.find((x) => x.id === item.id);
+            return now && Object.keys(add).every((k) => Object.keys(now.bySupplier || {}).some((b) => b.toLowerCase() === k.toLowerCase()));
+          });
+          if (ok) break;
           await wait(500);
         }
       }
@@ -110,7 +128,7 @@ export default function Restore() {
         }
       }
 
-      const msg = `Restore finished. Added ${rows.length} item${rows.length === 1 ? '' : 's'}, ${newSup.length} supplier${newSup.length === 1 ? '' : 's'} and ${placed} location entr${placed === 1 ? 'y' : 'ies'}.${skipped ? ` ${skipped} location entr${skipped === 1 ? 'y was' : 'ies were'} skipped (already present, or the stock did not match).` : ''}`;
+      const msg = `Restore finished. Added ${rows.length} item${rows.length === 1 ? '' : 's'}, ${newSup.length} supplier${newSup.length === 1 ? '' : 's'}, reconnected ${relinks.length} existing item${relinks.length === 1 ? '' : 's'} to their suppliers and placed ${placed} location entr${placed === 1 ? 'y' : 'ies'}.${skipped ? ` ${skipped} location entr${skipped === 1 ? 'y was' : 'ies were'} skipped (already present, or the stock did not match).` : ''}`;
       setResult(msg);
       toast('Restore finished');
       setSheets(null);
@@ -125,7 +143,7 @@ export default function Restore() {
   return (
     <>
       <p className="muted tiny">
-        Choose a backup file you saved earlier (More → Backup). Restore <b>only adds what is missing</b>: items, suppliers and locations that are already in the app are never changed.
+        Choose a backup file you saved earlier (More → Backup). Restore <b>adds what is missing</b> and reconnects suppliers to items that lost them. It never changes item names, details or stock totals.
       </p>
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={onFile} />
       <button className="btn primary big" onClick={() => fileRef.current.click()} disabled={busy}>
@@ -148,6 +166,8 @@ export default function Restore() {
                 {preview.stockPlan?.skipped.length ? <span className="muted"> ({preview.stockPlan.skipped.length} already in the app)</span> : null}
                 <br />
                 New suppliers to add: <b>{addSuppliers}</b>
+                <br />
+                Existing items to reconnect to their supplier: <b>{relinkCount}</b>
                 <br />
                 Location entries to restore: <b>{locCount}</b>
               </p>

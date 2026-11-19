@@ -6,6 +6,7 @@ import { Icon, Page, Segmented } from '../components/ui.jsx';
 import Staff from './Staff.jsx';
 import Import from './Import.jsx';
 import Export from './Export.jsx';
+import DeleteData from './DeleteData.jsx';
 
 export default function More() {
   const { isOwner, profile, fbUser, logout } = useAuth();
@@ -22,8 +23,8 @@ export default function More() {
   }, []);
 
   if (page) {
-    const titles = { staff: 'Members & invites', import: 'Restore', export: 'Backup' };
-    const Body = { staff: Staff, import: Import, export: Export }[page];
+    const titles = { staff: 'Members & invites', import: 'Restore', export: 'Backup', remove: 'Delete supplier or stock' };
+    const Body = { staff: Staff, import: Import, export: Export, remove: DeleteData }[page];
     return (
       <Page title={titles[page]} onBack={() => setPage(null)}>
         <Body />
@@ -57,6 +58,7 @@ export default function More() {
           <Row icon="user" title="Members & invites" sub="Invite or remove members" onClick={() => setPage('staff')} />
           <Row icon="download" title="Backup" sub="Save all stock, suppliers and locations to a file" onClick={() => setPage('export')} />
           <Row icon="upload" title="Restore" sub="Load stock, suppliers and locations from a backup file" onClick={() => setPage('import')} />
+          <Row icon="trash" title="Delete supplier or stock" sub="Remove a supplier or an item (asks twice)" onClick={() => setPage('remove')} />
         </div>
       )}
 

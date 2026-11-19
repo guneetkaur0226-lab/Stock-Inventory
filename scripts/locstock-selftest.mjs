@@ -5,7 +5,7 @@ import { LOCATION_VALUES } from '../src/lib/locations.js';
 import { locDocId, supplierItemView, unlocated, isAssociated, groupByItem } from '../src/lib/stockLoc.js';
 import { validateLocMove, planOutAny } from '../src/lib/moveRules.js';
 import { applyHistoryFilters, resolveDateRange } from '../src/lib/historyFilter.js';
-import { findItem, parseLocationsSheet, parseSuppliersSheet } from '../src/lib/restore.js';
+import { findItem, parseLocationsSheet, parseSuppliersSheet, planRelinks } from '../src/lib/restore.js';
 
 // 1) the location list in the app and in firestore.rules must be identical
 const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -99,4 +99,9 @@ const its = [{ id: 'a', name: 'Silencer', partNo: 'S1' }, { id: 'b', name: 'Gask
 assert.equal(findItem(its, 'silencer ', 's1').id, 'a');
 assert.equal(findItem(its, 'GASKET', '').id, 'b');
 assert.equal(findItem(its, 'Nothing', ''), null);
+// 9) a deleted supplier comes back on existing items, limited to stock no supplier holds
+const an = { cols: { name: 0 }, supplierCols: [{ idx: 1, name: 'Adil', enabled: true }], data: [['Coupling', 8]] };
+assert.deepEqual(planRelinks(an, [1], [{ id: 'c', name: 'Coupling', partNo: '', qty: 10, bySupplier: {} }])[0].add, { Adil: 8 });
+assert.deepEqual(planRelinks(an, [1], [{ id: 'c', name: 'Coupling', partNo: '', qty: 10, bySupplier: { Bob: 7 } }])[0].add, { Adil: 3 });
+assert.equal(planRelinks(an, [1], [{ id: 'c', name: 'Coupling', partNo: '', qty: 10, bySupplier: { adil: 8 } }]).length, 0);
 console.log('LOCATION SELF-TESTS PASSED');

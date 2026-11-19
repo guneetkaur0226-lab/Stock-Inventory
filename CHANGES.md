@@ -1,3 +1,11 @@
+# Changes: restore reconnects suppliers, Delete moved to More, supplier rename
+
+**Publish the updated `firestore.rules`.**
+
+* **Restore fix**: when a supplier was deleted, its items stayed but lost the link, so a restore brought back the supplier with 0 items. Restore now reconnects existing items to the supplier (using the supplier quantities in the backup, limited to stock no supplier holds today) and then places the location quantities. Item totals never change. Run Restore again with your backup file to repair the supplier you deleted.
+* **Delete supplier / Delete stock item** are now in **More → Delete supplier or stock** (owner only), and each asks **twice**. The delete icons are removed from the Suppliers tab and the stock item pop-up.
+* **Supplier rename**: the owner can now change a supplier's name. It is updated on all its items and locations (quantities unchanged); old History entries keep the old name. Members can still edit address, description and items, but not the name.
+
 # Changes: pop-up icons, history card box
 
 * **History card**: the quantity line is now the same yellow box as the supplier item view (Last change ... at location / Old Supplier Stock ... → now ...). Old entries without supplier quantities say "Old Total Stock".

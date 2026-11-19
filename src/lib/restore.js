@@ -79,6 +79,37 @@ export function parseLocationsSheet(rows) {
   return out;
 }
 
+/**
+ * Items that already exist but lost their link to a supplier that the backup shows (for example
+ * after a supplier was deleted). Each supplier gets back up to the quantity in the file, limited to
+ * the item's stock that no supplier holds right now. -> [{ item, add: { supplierName: qty } }]
+ */
+export function planRelinks(analysis, enabledIdx, items) {
+  const out = [];
+  if (!analysis || analysis.error || analysis.cols.name === undefined) return out;
+  const use = analysis.supplierCols.filter((c) => enabledIdx.includes(c.idx));
+  if (!use.length) return out;
+  for (const r of analysis.data) {
+    const item = findItem(items, clean(r[analysis.cols.name], 200), analysis.cols.partNo === undefined ? '' : clean(r[analysis.cols.partNo], 100));
+    if (!item) continue;
+    const by = item.bySupplier || {};
+    let room = Math.max(0, round3((Number(item.qty) || 0) - Object.values(by).reduce((a, b) => a + (Number(b) || 0), 0)));
+    const add = {};
+    for (const c of use) {
+      const want = parseNumber(r[c.idx]);
+      if (!want || Number.isNaN(want) || want <= 0) continue;
+      if (Object.keys(by).some((k) => sameName(k, c.name))) continue; // already linked
+      const give = Math.min(round3(want), room);
+      if (give > 0) {
+        add[c.name] = give;
+        room = round3(room - give);
+      }
+    }
+    if (Object.keys(add).length) out.push({ item, add });
+  }
+  return out;
+}
+
 /** Finds the item a backup row refers to (part no. first, then name). */
 export function findItem(items, name, partNo) {
   const p = norm(partNo);

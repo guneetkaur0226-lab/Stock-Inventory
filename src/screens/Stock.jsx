@@ -9,8 +9,8 @@ import { parseNumber } from '../lib/text.js';
 import { locationText } from '../lib/locations.js';
 import { rowsForSupplier, unlocated } from '../lib/stockLoc.js';
 import LocationSelect from '../components/LocationSelect.jsx';
-import { addItem, buckets, deleteItem, editItem, recordStock, validateMove } from '../db.js';
-import { Empty, Field, Icon, Segmented, Sheet, Spinner, SuggestInput, useConfirm, useToast } from '../components/ui.jsx';
+import { addItem, buckets, editItem, recordStock, validateMove } from '../db.js';
+import { Empty, Field, Icon, Segmented, Sheet, Spinner, SuggestInput, useToast } from '../components/ui.jsx';
 import MoveRow from '../components/MoveRow.jsx';
 import ItemForm from './ItemForm.jsx';
 
@@ -164,7 +164,6 @@ function AddSheet({ onClose }) {
 function ItemSheet({ item, onClose }) {
   const auth = useAuth();
   const toast = useToast();
-  const confirm = useConfirm();
   const { items, locStock } = useData();
   const itemRows = useMemo(() => locStock.filter((r) => r.itemId === item.id), [locStock, item.id]);
   const supplierNames = useSupplierNames();
@@ -227,19 +226,6 @@ function ItemSheet({ item, onClose }) {
     onClose();
   }
 
-  async function remove() {
-    const ok = await confirm({
-      title: 'Delete this item?',
-      message: `"${item.name}" will be removed from the stock list. Its history stays in the history log.`,
-      okText: 'Delete',
-      danger: true,
-    });
-    if (!ok) return;
-    deleteItem({ item, itemRows, user: userOf(auth) }).catch((e) => toast(`Not deleted: ${e.message}`, 'err'));
-    toast('Item deleted');
-    onClose();
-  }
-
   if (view === 'edit') {
     return (
       <Sheet title="Edit item" onClose={() => setView('move')} tall actions={<SaveIcon form="item-form" label="Save changes" />}>
@@ -284,9 +270,6 @@ function ItemSheet({ item, onClose }) {
           <>
             <button className="icon-btn" onClick={() => setView('edit')} aria-label="Edit details">
               <Icon name="edit" size={20} />
-            </button>
-            <button className="icon-btn danger" onClick={remove} aria-label="Delete item">
-              <Icon name="trash" size={20} />
             </button>
           </>
         )

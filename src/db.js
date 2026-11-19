@@ -447,6 +447,83 @@ export async function fetchAllMovements(onProgress) {
  *  3. The supplier record is deleted.
  * Steps are ordered so a failure part-way is safe to retry.
  */
+/**
+ * Restore: re-attaches a supplier to items that still exist but lost the link (for example after the
+ * supplier was deleted). The item's total never changes; only part of its unassigned stock is given
+ * to the supplier. list = [{ item, add: { supplierName: qty } }]
+ */
+export async function relinkSuppliers({ list, user, onProgress }) {
+  let done = 0;
+  for (const part of chunk(list, 8)) {
+    const batch = writeBatch(db);
+    for (const { item, add } of part) {
+      const moveRef = doc(collection(db, 'movements'));
+      const args = [];
+      Object.entries(add).forEach(([k, v]) => args.push(new FieldPath('bySupplier', k), round3(v)));
+      args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
+      batch.update(doc(db, 'items', item.id), ...args);
+      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier link restored from backup: ${Object.keys(add).join(', ')} (stock total unchanged)`, ''));
+    }
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, list.length);
+  }
+}
+
+/**
+ * Owner only. Renames a supplier everywhere it is used: the name on each item's supplier breakdown,
+ * on its location rows, and its supplier record. Quantities do not change. Old History entries keep
+ * the name that was used at the time. (8 items per batch because of the security rules' look-up limit.)
+ */
+export async function renameSupplier({ oldName, newName, docIds = [], items, locRows = [], user, onProgress }) {
+  const from = slug(oldName);
+  const to = clean(newName, 80);
+  const holders = [];
+  for (const item of items) {
+    const keys = Object.keys(item.bySupplier || {}).filter((k) => slug(k) === from);
+    if (keys.length) holders.push({ item, keys });
+  }
+  const myLocs = locRows.filter((r) => slug(r.supplier) === from);
+  const total = holders.length + myLocs.length + 1;
+  let done = 0;
+
+  for (const part of chunk(holders, 8)) {
+    const batch = writeBatch(db);
+    for (const { item, keys } of part) {
+      const moveRef = doc(collection(db, 'movements'));
+      const args = [];
+      const qty = keys.reduce((a, k) => a + (Number(item.bySupplier[k]) || 0), 0);
+      keys.forEach((k) => args.push(new FieldPath('bySupplier', k), deleteField()));
+      args.push(new FieldPath('bySupplier', to), round3(qty));
+      args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
+      batch.update(doc(db, 'items', item.id), ...args);
+      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier renamed: \"${oldName}\" → \"${to}\" (stock quantity unchanged)`, to));
+    }
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, total);
+  }
+
+  for (const part of chunk(myLocs, 400)) {
+    const batch = writeBatch(db);
+    part.forEach((r) => batch.update(doc(db, 'locStock', r.id), { supplier: to, updatedAt: serverTimestamp(), updatedBy: user.uid }));
+    await batch.commit();
+    done += part.length;
+    onProgress?.(done, total);
+  }
+
+  // the old supplier record (the caller saves the new one under the new name)
+  const oldIds = new Set([...docIds, from]);
+  oldIds.delete(slug(to));
+  if (oldIds.size) {
+    const batch = writeBatch(db);
+    oldIds.forEach((id) => batch.delete(doc(db, 'suppliers', id)));
+    await batch.commit();
+  }
+  onProgress?.(total, total);
+  return { itemsUpdated: holders.length };
+}
+
 export async function deleteSupplier({ name, docIds = [], items, prices, locRows = [], user, onProgress }) {
   const target = slug(name);
   const holders = [];
