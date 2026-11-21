@@ -126,7 +126,7 @@ export default function Suppliers() {
                   <div className="card-body">
                     {s.list.length === 0 && <p className="muted">No items linked to this supplier yet. Use “Edit supplier” to choose items and locations.</p>}
                     {s.list.slice(0, 60).map(({ item, view }) => (
-                      <SupplierItem key={item.id} item={item} view={view} supplier={s.name} itemRows={rowsByItem.get(item.id) || []} defaultOpen={s.byItemOnly} />
+                      <SupplierItem key={item.id} item={item} view={view} supplier={s.name} itemRows={rowsByItem.get(item.id) || []} supplierInfo={[s.dir?.address, s.dir?.note].filter(Boolean).join(' · ')} />
                     ))}
                     {s.list.length > 60 && <div className="muted tiny">…and {s.list.length - 60} more items. Search to narrow the list.</div>}
                   </div>
@@ -154,8 +154,8 @@ export default function Suppliers() {
 }
 
 // ------------------------------------------------------------ one item of a supplier
-function SupplierItem({ item, view, supplier, itemRows, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen);
+function SupplierItem({ item, view, supplier, itemRows, supplierInfo = '' }) {
+  const [open, setOpen] = useState(false); // always starts collapsed (name + quantity), also in search results
   const [last, setLast] = useState(null); // { type, qty, before, after, place } of the latest IN / OUT here
   if (!open) {
     // collapsed: item name and this supplier's quantity only; tap to see locations and IN / OUT
@@ -198,16 +198,17 @@ function SupplierItem({ item, view, supplier, itemRows, defaultOpen = false }) {
       )}
       {view.lines.length === 0 && <div className="muted tiny">No location chosen yet. Use “Edit supplier” to add one.</div>}
       {view.lines.map((line) => (
-        <LocationLine key={line.id} item={item} line={line} supplier={view.key || supplier} itemRows={itemRows} supplierStock={view.supplierStock} onChanged={setLast} />
+        <LocationLine key={line.id} item={item} line={line} supplier={view.key || supplier} itemRows={itemRows} supplierStock={view.supplierStock} supplierInfo={supplierInfo} onChanged={setLast} />
       ))}
     </div>
   );
 }
 
 // ------------------------------------------- one Supplier + Item + Location row, with IN / OUT
-function LocationLine({ item, line, supplier, itemRows, supplierStock, onChanged }) {
+function LocationLine({ item, line, supplier, itemRows, supplierStock, supplierInfo, onChanged }) {
   const auth = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const [qtyText, setQtyText] = useState('0');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -223,11 +224,28 @@ function LocationLine({ item, line, supplier, itemRows, supplierStock, onChanged
     setErr('');
   };
 
-  function act(type) {
+  async function act(type) {
     if (busy) return;
     const n = Number.isFinite(qty) ? qty : NaN;
     const bad = validateMove(item, type, n, supplier, line.location, itemRows);
     if (bad) return setErr(bad);
+    // ask first: show exactly what will be saved
+    const r3 = (v) => Math.round(v * 1000) / 1000;
+    const newSupplier = r3(type === 'IN' ? supplierStock + n : supplierStock - n);
+    const newHere = r3(type === 'IN' ? line.qty + n : line.qty - n);
+    const lines = [
+      `Supplier: ${supplier}${supplierInfo ? ` (${supplierInfo})` : ''}`,
+      `Item: ${item.name}${partLine(item) !== 'No part no. / brand / model' ? ` (${partLine(item)})` : ''}`,
+      `Location: ${placeText(line.location)}`,
+      '',
+      `Old Supplier Stock: ${fmtNum(supplierStock)} ${item.unit}`,
+      `${type}: ${type === 'IN' ? '+' : '−'} ${fmtNum(n)} ${item.unit}`,
+      `New Supplier Stock: ${fmtNum(newSupplier)} ${item.unit}`,
+      '',
+      `At this location: ${fmtNum(line.qty)} → ${fmtNum(newHere)} ${item.unit}`,
+    ];
+    const ok = await confirm({ title: `Confirm stock ${type}`, message: lines.join('\n'), okText: `Yes, ${type}`, danger: type === 'OUT' });
+    if (!ok) return;
     try {
       recordStock({ item, type, qty: n, supplier, location: line.location, itemRows, user: userOf(auth) }).catch((e) =>
         toast(

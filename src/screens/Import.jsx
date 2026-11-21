@@ -1,14 +1,11 @@
 import { useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { useData } from '../store.jsx';
-import { importStock, moveStock, relinkSuppliers, restoreSuppliers } from '../db.js';
+import { runRestore } from '../lib/restoreRun.js';
 import { analyzeStock, guessSheet, MAX_ROWS, planStock, readSpreadsheet } from '../lib/importer.js';
-import { findItem, findSheet, parseLocationsSheet, parseSuppliersSheet, planRelinks } from '../lib/restore.js';
-import { rowsForSupplier } from '../lib/stockLoc.js';
+import { findSheet, parseLocationsSheet, parseSuppliersSheet, planRelinks } from '../lib/restore.js';
 import { slug } from '../lib/text.js';
 import { Icon, useToast } from '../components/ui.jsx';
-
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Restore: reads a backup file and adds whatever is missing. Existing items are never changed. */
 export default function Restore() {
@@ -30,7 +27,7 @@ export default function Restore() {
   // what the file would add
   const preview = useMemo(() => {
     if (!sheets) return null;
-    const stockSheet = sheets[guessSheet(sheets, 'stock')];
+    const stockSheet = findSheet(sheets, /^stock$/i) || sheets[guessSheet(sheets, 'stock')];
     const analysis = analyzeStock(stockSheet?.rows || []);
     const stockPlan = analysis.error ? null : planStock(analysis, analysis.supplierCols.filter((c) => c.enabled).map((c) => c.idx), items);
     const supSheet = findSheet(sheets, /^supplier/i);
@@ -71,64 +68,17 @@ export default function Restore() {
     setResult('');
     const user = { uid: auth.fbUser.uid, name: auth.name, email: auth.fbUser.email };
     try {
-      const newSup = preview.newSuppliers;
-      if (newSup.length) await restoreSuppliers({ rows: newSup });
-
-      const rows = preview.stockPlan?.newRows || [];
-      if (rows.length) {
-        const known = new Set([...supplierIds, ...newSup.map((s) => slug(s.name))]);
-        await importStock({ rows, user, existingSupplierIds: known, onProgress: (d, t) => setProgress(`Adding items… ${d} of ${t}`) });
-        // wait until the new items are visible in the app before placing them at locations
-        for (let i = 0; i < 30; i++) {
-          const have = live.current.items;
-          if (rows.every((r) => findItem(have, r.name, r.partNo))) break;
-          await wait(500);
-        }
-      }
-
-      // items that still exist but lost their supplier (for example a deleted supplier): link them again
-      const relinks = planRelinks(preview.analysis, preview.enabled, live.current.items);
-      if (relinks.length) {
-        await relinkSuppliers({ list: relinks, user, onProgress: (d, t) => setProgress(`Reconnecting suppliers to items… ${d} of ${t}`) });
-        for (let i = 0; i < 30; i++) {
-          const have = live.current.items;
-          const ok = relinks.every(({ item, add }) => {
-            const now = have.find((x) => x.id === item.id);
-            return now && Object.keys(add).every((k) => Object.keys(now.bySupplier || {}).some((b) => b.toLowerCase() === k.toLowerCase()));
-          });
-          if (ok) break;
-          await wait(500);
-        }
-      }
-
-      let placed = 0;
-      let skipped = 0;
-      const local = new Map(); // item id -> its location rows, kept up to date while restoring
-      const locRows = preview.locations.rows;
-      for (let i = 0; i < locRows.length; i++) {
-        setProgress(`Placing stock at locations… ${i + 1} of ${locRows.length}`);
-        const r = locRows[i];
-        const item = findItem(live.current.items, r.item, r.partNo);
-        if (!item) {
-          skipped++;
-          continue;
-        }
-        if (!local.has(item.id)) local.set(item.id, live.current.locStock.filter((x) => x.itemId === item.id));
-        const itemRows = local.get(item.id);
-        if (rowsForSupplier(itemRows, r.supplier).some((x) => x.location === r.location)) {
-          skipped++; // already there
-          continue;
-        }
-        try {
-          await moveStock({ item, supplier: r.supplier, from: '', to: r.location, qty: r.qty, itemRows, note: 'Restored from backup', user });
-          itemRows.push({ id: `${slug(r.supplier)}__${item.id}__${slug(r.location)}`, itemId: item.id, supplier: r.supplier, location: r.location, qty: r.qty });
-          placed++;
-        } catch {
-          skipped++;
-        }
-      }
-
-      const msg = `Restore finished. Added ${rows.length} item${rows.length === 1 ? '' : 's'}, ${newSup.length} supplier${newSup.length === 1 ? '' : 's'}, reconnected ${relinks.length} existing item${relinks.length === 1 ? '' : 's'} to their suppliers and placed ${placed} location entr${placed === 1 ? 'y' : 'ies'}.${skipped ? ` ${skipped} location entr${skipped === 1 ? 'y was' : 'ies were'} skipped (already present, or the stock did not match).` : ''}`;
+      const r = await runRestore({
+        preview,
+        supplierIds,
+        getItems: () => live.current.items,
+        getLocStock: () => live.current.locStock,
+        user,
+        onProgress: setProgress,
+      });
+      const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+      let msg = `Restore finished. Added ${plural(r.added, 'item', 'items')}, ${plural(r.newSuppliers, 'supplier', 'suppliers')}, reconnected ${plural(r.relinked, 'existing item', 'existing items')} to their suppliers and placed ${plural(r.placed, 'location entry', 'location entries')}.`;
+      if (r.skipped) msg += ` ${plural(r.skipped, 'location entry was', 'location entries were')} skipped${r.reasons.length ? ` (${r.reasons.join('; ')})` : ''}.`;
       setResult(msg);
       toast('Restore finished');
       setSheets(null);

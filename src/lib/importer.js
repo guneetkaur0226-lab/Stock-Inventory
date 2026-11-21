@@ -16,7 +16,7 @@ const STOCK_HEADS = {
   minQty: ['minstock', 'min', 'minimum', 'minimumstock', 'minqty', 'minquantity', 'reorder', 'reorderlevel', 'alert', 'alertlevel', 'lowstock', 'minlevel'],
   unassigned: ['unassigned', 'otherunassigned', 'other', 'others', 'nosupplier', 'unknownsupplier'],
 };
-const IGNORED_HEADS = ['sno', 'srno', 'sr', 'slno', 'serial', 'serialno', 'no', '#', 'remarks', 'remark', 'note', 'notes', 'comments', 'comment', 'reference', 'date', 'updated', 'lastupdated'];
+const IGNORED_HEADS = ['sno', 'srno', 'sr', 'slno', 'serial', 'serialno', 'no', '#', 'remarks', 'remark', 'note', 'notes', 'comments', 'comment', 'reference', 'date', 'updated', 'lastupdated', 'unassigned'];
 
 const PRICE_HEADS = {
   supplier: ['supplier', 'suppliername', 'manufacturer', 'vendor', 'vendorname', 'party', 'partyname', 'seller', 'from', 'dealer'],

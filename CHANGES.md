@@ -1,3 +1,9 @@
+# Changes: search view, IN/OUT confirmation, restore fix
+
+* **Suppliers search**: items now always start collapsed (item name + quantity), in search results too. Before, some opened by themselves depending on when they appeared.
+* **IN / OUT confirmation** (Suppliers tab): a pop-up shows supplier, item (with part/brand/model), location, Old Supplier Stock, the IN/OUT quantity, New Supplier Stock and the quantity at that location. Nothing is saved until you confirm.
+* **Restore fix**: the backup's "Unassigned" column was being read as a supplier named "Unassigned" (so restored stock got attached to a wrong supplier and the real supplier-location links did not rebuild). It is now ignored. The restore step was also moved into `src/lib/restoreRun.js` and tested end to end for: empty app, deleted supplier, missing locations only, deleted item, and running twice (changes nothing). The result message now lists why a location entry was skipped.
+
 # Changes: restore reconnects suppliers, Delete moved to More, supplier rename
 
 **Publish the updated `firestore.rules`.**

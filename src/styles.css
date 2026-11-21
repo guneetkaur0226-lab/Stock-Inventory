@@ -324,3 +324,5 @@ code { background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px
 .icon-btn.save { color: #5fd38d; }
 .icon-btn.save:disabled { opacity: .4; }
 .move-main .si-last { padding-right: 10px; margin: 4px 0; }
+
+.dialog p { white-space: pre-line; }

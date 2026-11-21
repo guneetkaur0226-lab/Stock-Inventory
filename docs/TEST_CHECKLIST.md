@@ -95,3 +95,8 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] More → Delete supplier or stock: deleting a supplier or item asks twice; Cancel at either step deletes nothing.
 - [ ] Delete a test supplier, then More → Restore with a backup taken before: supplier returns WITH its items and location quantities.
 - [ ] Edit supplier (owner): change the name; items and locations show the new name, quantities unchanged. Member sees the name as read-only.
+
+## Search view, IN/OUT confirmation, restore
+- [ ] Suppliers → search an item: every supplier shows the item collapsed (name + quantity).
+- [ ] Suppliers → IN or OUT: a confirmation shows supplier, item, location, old stock, qty, new stock. Cancel saves nothing.
+- [ ] Take a backup, delete a test supplier, Restore: supplier, its items and its location quantities are back; no supplier named "Unassigned" appears.
