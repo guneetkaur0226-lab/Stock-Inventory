@@ -1,3 +1,8 @@
+# Changes: confirm box, owner in History member filter
+
+* The IN/OUT confirmation no longer shows the "At this location" line.
+* **History → Filters → Member** always lists the owner (marked "Owner") and every member. The owner's own entries are recorded exactly like members' (same user id and name), so filtering by the owner finds them.
+
 # Changes: search view, IN/OUT confirmation, restore fix
 
 * **Suppliers search**: items now always start collapsed (item name + quantity), in search results too. Before, some opened by themselves depending on when they appeared.

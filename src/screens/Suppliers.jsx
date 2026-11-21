@@ -232,7 +232,6 @@ function LocationLine({ item, line, supplier, itemRows, supplierStock, supplierI
     // ask first: show exactly what will be saved
     const r3 = (v) => Math.round(v * 1000) / 1000;
     const newSupplier = r3(type === 'IN' ? supplierStock + n : supplierStock - n);
-    const newHere = r3(type === 'IN' ? line.qty + n : line.qty - n);
     const lines = [
       `Supplier: ${supplier}${supplierInfo ? ` (${supplierInfo})` : ''}`,
       `Item: ${item.name}${partLine(item) !== 'No part no. / brand / model' ? ` (${partLine(item)})` : ''}`,
@@ -241,8 +240,6 @@ function LocationLine({ item, line, supplier, itemRows, supplierStock, supplierI
       `Old Supplier Stock: ${fmtNum(supplierStock)} ${item.unit}`,
       `${type}: ${type === 'IN' ? '+' : '−'} ${fmtNum(n)} ${item.unit}`,
       `New Supplier Stock: ${fmtNum(newSupplier)} ${item.unit}`,
-      '',
-      `At this location: ${fmtNum(line.qty)} → ${fmtNum(newHere)} ${item.unit}`,
     ];
     const ok = await confirm({ title: `Confirm stock ${type}`, message: lines.join('\n'), okText: `Yes, ${type}`, danger: type === 'OUT' });
     if (!ok) return;

@@ -16,7 +16,8 @@ import { historyRows } from '../lib/exporter.js';
 const TYPES = ['ALL', 'IN', 'OUT', 'MOVE', 'NEW', 'EDIT', 'DELETE'];
 
 export default function History() {
-  const { isOwner } = useAuth();
+  const auth = useAuth();
+  const { isOwner } = auth;
   const toast = useToast();
   const [count, setCount] = useState(300);
   const [moves, setMoves] = useState(null);
@@ -62,11 +63,25 @@ export default function History() {
   );
 
   // choices for the filter drop-downs: everything in the loaded history plus current items / suppliers
+  // everyone who can appear in the history: the owner and all members (the owner can read the member list),
+  // the person using the app, and anyone found in the loaded entries
+  const [people, setPeople] = useState([]);
+  useEffect(() => {
+    if (!isOwner) return undefined;
+    return onSnapshot(
+      collection(db, 'users'),
+      (s) => setPeople(s.docs.map((d) => ({ uid: d.id, name: d.data().name, role: d.data().role }))),
+      () => setPeople([])
+    );
+  }, [isOwner]);
   const staffOptions = useMemo(() => {
     const m = new Map();
-    (moves || []).forEach((x) => x.by && !m.has(x.by) && m.set(x.by, x.byName || 'Unknown'));
+    const add = (uid, name, role) => uid && !m.has(uid) && m.set(uid, `${name || 'Unknown'}${role === 'owner' ? ' (Owner)' : ''}`);
+    people.forEach((p) => add(p.uid, p.name, p.role));
+    if (auth.fbUser) add(auth.fbUser.uid, auth.name, isOwner ? 'owner' : 'staff');
+    (moves || []).forEach((x) => add(x.by, x.byName, ''));
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [moves]);
+  }, [moves, people, auth.fbUser, auth.name, isOwner]);
   const supplierOptions = useMemo(() => {
     const m = new Map();
     suppliers.forEach((s) => m.set(s.name.toLowerCase(), s.name));
