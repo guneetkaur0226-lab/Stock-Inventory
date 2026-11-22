@@ -206,6 +206,7 @@ input[type='checkbox'] { width: 24px; min-height: 24px; height: 24px; accent-col
 .pill.t-NEW { background: var(--info-bg); color: var(--info); }
 .pill.t-EDIT { background: var(--warn-bg); color: var(--warn); }
 .pill.t-MOVE { background: var(--info-bg); color: var(--info); }
+.pill.t-RENAME { background: var(--warn-bg); color: var(--warn); }
 .pill.t-DELETE { background: var(--ink); color: var(--bg); }
 
 /* ---------- sheet ---------- */

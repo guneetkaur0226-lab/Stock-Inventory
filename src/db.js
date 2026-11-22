@@ -71,6 +71,15 @@ const mvBase = (user, item, type, qty, stockAfter, note, supplier) => ({
   at: serverTimestamp(),
 });
 
+/**
+ * Saves a history entry AND its automatic copy in the rolling 10-day backup (owner-only collection),
+ * in the same batch. The copy has the same id and content; nothing in the app can edit or delete it.
+ */
+const putMove = (batch, ref, data) => {
+  batch.set(ref, data);
+  batch.set(doc(db, 'historyBackup', ref.id), data);
+};
+
 // --------------------------------------------------------------- stock IN/OUT
 /**
  * Records stock IN or OUT. Does NOT wait for the server (so it works offline);
@@ -123,7 +132,7 @@ export function recordStock({ item, type, qty, supplier = '', location = '', ite
     if (row) batch.update(doc(db, 'locStock', row.id), body);
     else batch.set(doc(db, 'locStock', locDocId(supLabel, item.id, location)), { itemId: item.id, supplier: move.supplier, location, ...body });
   }
-  batch.set(moveRef, move);
+  putMove(batch, moveRef, move);
   return batch.commit();
 }
 
@@ -149,7 +158,7 @@ export function moveStock({ item, supplier, from = '', to, qty, itemRows = [], n
   if (src) batch.update(doc(db, 'locStock', src.id), { qty: round3((Number(src.qty) || 0) - qty), ...stamp });
   if (dst) batch.update(doc(db, 'locStock', dst.id), { qty: round3((Number(dst.qty) || 0) + qty), ...stamp });
   else batch.set(doc(db, 'locStock', locDocId(sup, item.id, to)), { itemId: item.id, supplier: sup, location: to, qty: round3(qty), ...stamp });
-  batch.set(moveRef, { ...mvBase(user, item, 'MOVE', qty, item.qty, note, sup), location: from, toLocation: to });
+  putMove(batch, moveRef, { ...mvBase(user, item, 'MOVE', qty, item.qty, note, sup), location: from, toLocation: to });
   return batch.commit();
 }
 
@@ -189,7 +198,7 @@ export function addItem({ data, supplier = '', location = '', note = '', user })
       updatedBy: user.uid,
     });
   }
-  batch.set(moveRef, move);
+  putMove(batch, moveRef, move);
   return batch.commit();
 }
 
@@ -211,7 +220,7 @@ export function editItem({ item, data, user }) {
   const moveRef = doc(collection(db, 'movements'));
   const batch = writeBatch(db);
   batch.update(itemRef, { ...changes, lastMoveId: moveRef.id, updatedAt: serverTimestamp(), updatedBy: user.uid });
-  batch.set(moveRef, mvBase(user, { ...item, ...changes }, 'EDIT', 0, item.qty, notes.join('; '), ''));
+  putMove(batch, moveRef, mvBase(user, { ...item, ...changes }, 'EDIT', 0, item.qty, notes.join('; '), ''));
   return batch.commit();
 }
 
@@ -220,7 +229,7 @@ export function deleteItem({ item, itemRows = [], user }) {
   const batch = writeBatch(db);
   batch.delete(doc(db, 'items', item.id));
   itemRows.forEach((r) => batch.delete(doc(db, 'locStock', r.id))); // its supplier/location quantities go with it
-  batch.set(moveRef, mvBase(user, item, 'DELETE', item.qty, 0, 'Item deleted', ''));
+  putMove(batch, moveRef, mvBase(user, item, 'DELETE', item.qty, 0, 'Item deleted', ''));
   return batch.commit();
 }
 
@@ -231,7 +240,7 @@ export async function importStock({ rows, user, existingSupplierIds, onProgress 
   const names = new Set();
   rows.forEach((r) => Object.keys(r.bySupplier).forEach((n) => names.add(n)));
   let done = 0;
-  for (const part of chunk(rows, 200)) {
+  for (const part of chunk(rows, 150)) {
     const batch = writeBatch(db);
     for (const r of part) {
       const itemRef = doc(collection(db, 'items'));
@@ -252,7 +261,7 @@ export async function importStock({ rows, user, existingSupplierIds, onProgress 
         updatedBy: user.uid,
       };
       batch.set(itemRef, item);
-      batch.set(moveRef, mvBase(user, { id: itemRef.id, ...item }, 'NEW', r.qty, r.qty, 'Imported from file', ''));
+      putMove(batch, moveRef, mvBase(user, { id: itemRef.id, ...item }, 'NEW', r.qty, r.qty, 'Imported from file', ''));
     }
     await batch.commit();
     done += part.length;
@@ -462,7 +471,7 @@ export async function relinkSuppliers({ list, user, onProgress }) {
       Object.entries(add).forEach(([k, v]) => args.push(new FieldPath('bySupplier', k), round3(v)));
       args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
       batch.update(doc(db, 'items', item.id), ...args);
-      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier link restored from backup: ${Object.keys(add).join(', ')} (stock total unchanged)`, ''));
+      putMove(batch, moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier link restored from backup: ${Object.keys(add).join(', ')} (stock total unchanged)`, ''));
     }
     await batch.commit();
     done += part.length;
@@ -487,20 +496,32 @@ export async function renameSupplier({ oldName, newName, docIds = [], items, loc
   const total = holders.length + myLocs.length + 1;
   let done = 0;
 
-  for (const part of chunk(holders, 8)) {
+  // ONE history entry for the whole rename; every item points at it (rules allow this for the owner)
+  const moveRef = doc(collection(db, 'movements'));
+  const entry = mvBase(
+    user,
+    { id: 'supplier-rename', name: 'Supplier renamed', partNo: '', unit: 'pcs' },
+    'RENAME',
+    0,
+    0,
+    `\"${oldName}\" → \"${to}\" (${holders.length} item${holders.length === 1 ? '' : 's'}, stock quantity unchanged)`,
+    to
+  );
+  const parts = chunk(holders, 8);
+  if (!parts.length) parts.push([]);
+  for (let pi = 0; pi < parts.length; pi++) {
     const batch = writeBatch(db);
-    for (const { item, keys } of part) {
-      const moveRef = doc(collection(db, 'movements'));
+    if (pi === 0) putMove(batch, moveRef, entry);
+    for (const { item, keys } of parts[pi]) {
       const args = [];
       const qty = keys.reduce((a, k) => a + (Number(item.bySupplier[k]) || 0), 0);
       keys.forEach((k) => args.push(new FieldPath('bySupplier', k), deleteField()));
       args.push(new FieldPath('bySupplier', to), round3(qty));
       args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
       batch.update(doc(db, 'items', item.id), ...args);
-      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier renamed: \"${oldName}\" → \"${to}\" (stock quantity unchanged)`, to));
     }
     await batch.commit();
-    done += part.length;
+    done += parts[pi].length;
     onProgress?.(done, total);
   }
 
@@ -546,7 +567,7 @@ export async function deleteSupplier({ name, docIds = [], items, prices, locRows
       keys.forEach((k) => args.push(new FieldPath('bySupplier', k), deleteField()));
       args.push('lastMoveId', moveRef.id, 'updatedAt', serverTimestamp(), 'updatedBy', user.uid);
       batch.update(doc(db, 'items', item.id), ...args);
-      batch.set(moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier "${name}" deleted: removed from this item (stock quantity unchanged)`, ''));
+      putMove(batch, moveRef, mvBase(user, item, 'EDIT', 0, item.qty, `Supplier "${name}" deleted: removed from this item (stock quantity unchanged)`, ''));
     }
     await batch.commit();
     done += part.length;
@@ -637,4 +658,58 @@ export async function purgeHistory({ from = null, to = null, keepIds = new Set()
     }
   }
   return { deleted, kept, more };
+}
+
+
+// ------------------------------------------------------ rolling 10-day history backup
+export const BACKUP_DAYS = 10;
+
+/** First moment of the oldest day shown in the backup (today + the 9 days before). */
+export function backupFrom() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (BACKUP_DAYS - 1));
+  return d;
+}
+
+/**
+ * Owner only, runs by itself when the owner opens the app. (1) Removes backup copies older than
+ * 10 days (the rules do not allow removing anything newer). (2) Copies recent history entries that
+ * were made before the backup existed. There is no manual delete anywhere.
+ */
+export async function syncHistoryBackup() {
+  const col = collection(db, 'historyBackup');
+  const old = Timestamp.fromDate(new Date(Date.now() - (BACKUP_DAYS * 24 + 1) * 3600 * 1000));
+  for (let i = 0; i < 25; i++) {
+    const snap = await getDocs(query(col, where('at', '<', old), orderBy('at', 'asc'), limit(400)));
+    if (snap.empty) break;
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    if (snap.size < 400) break;
+  }
+
+  const from = Timestamp.fromDate(backupFrom());
+  const have = new Set((await getDocs(query(col, where('at', '>=', from), limit(5000)))).docs.map((d) => d.id));
+  const recent = await getDocs(query(collection(db, 'movements'), where('at', '>=', from), orderBy('at', 'asc'), limit(5000)));
+  const missing = recent.docs.filter((d) => !have.has(d.id));
+  for (const part of chunk(missing, 400)) {
+    try {
+      const batch = writeBatch(db);
+      part.forEach((d) => batch.set(doc(db, 'historyBackup', d.id), d.data()));
+      await batch.commit();
+    } catch {
+      // one odd old entry must not stop the rest: copy them one by one
+      for (const d of part) {
+        try {
+          const batch = writeBatch(db);
+          batch.set(doc(db, 'historyBackup', d.id), d.data());
+          await batch.commit();
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+  return missing.length;
 }

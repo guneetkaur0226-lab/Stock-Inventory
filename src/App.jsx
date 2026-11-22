@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { syncHistoryBackup } from './db.js';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { DataProvider, useData } from './store.jsx';
 import { configured } from './firebase.js';
@@ -92,6 +93,11 @@ function SyncPill() {
 }
 
 function Shell() {
+  const { isOwner } = useAuth();
+  // the owner's app keeps the rolling 10-day history backup tidy and complete by itself
+  useEffect(() => {
+    if (isOwner) syncHistoryBackup().catch(() => {});
+  }, [isOwner]);
   const [tab, setTab] = useState('suppliers');
   const tabs = [
     { id: 'suppliers', label: 'Suppliers', icon: 'tag' },

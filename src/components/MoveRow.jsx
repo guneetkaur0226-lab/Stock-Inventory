@@ -1,7 +1,7 @@
 import { fmtNum, fmtDate, fmtTime } from '../lib/format.js';
 import { locationText } from '../lib/locations.js';
 
-const LABEL = { IN: 'IN', OUT: 'OUT', NEW: 'NEW', EDIT: 'EDIT', DELETE: 'DELETED', MOVE: 'MOVED' };
+const LABEL = { IN: 'IN', OUT: 'OUT', NEW: 'NEW', EDIT: 'EDIT', DELETE: 'DELETED', MOVE: 'MOVED', RENAME: 'RENAMED' };
 
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -24,7 +24,7 @@ export default function MoveRow({ m, showItem = true }) {
             {m.partNo ? <span className="muted"> · {m.partNo}</span> : null}
           </div>
         )}
-        {m.supplier ? <div className="move-sup">{m.supplier}</div> : m.type === 'IN' || m.type === 'OUT' ? <div className="move-sup muted">No supplier</div> : null}
+        {m.supplier && m.type !== 'RENAME' ? <div className="move-sup">{m.supplier}</div> : m.type === 'IN' || m.type === 'OUT' ? <div className="move-sup muted">No supplier</div> : null}
         {sum && (
           <div className="si-last">
             <div>

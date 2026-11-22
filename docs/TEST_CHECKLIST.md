@@ -100,3 +100,11 @@ Use the owner's phone (A) and a staff phone (B). Tick each line.
 - [ ] Suppliers → search an item: every supplier shows the item collapsed (name + quantity).
 - [ ] Suppliers → IN or OUT: a confirmation shows supplier, item, location, old stock, qty, new stock. Cancel saves nothing.
 - [ ] Take a backup, delete a test supplier, Restore: supplier, its items and its location quantities are back; no supplier named "Unassigned" appears.
+
+## Remove item guard, rename entry, date cards, 10-day backup
+- [ ] Edit supplier → Remove item with quantity: blocked with the message. With 0 quantity: asks "Remove item?".
+- [ ] Rename a supplier with several items: History shows ONE "RENAMED" entry.
+- [ ] History: date cards open/close; Member filter shows only people with entries.
+- [ ] Owner: History → Last 10 days backup shows date cards for the last 10 days, no delete buttons. Members do not see the button.
+- [ ] Do an IN, then delete that entry with Delete history: it disappears from History but is still in the 10-day backup.
+- [ ] Rules playground: owner delete of a /historyBackup doc from today → Denied; update → Denied; member read → Denied.

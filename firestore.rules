@@ -11,7 +11,8 @@ rules_version = '2';
 //   - Only the owner can read/write supplier prices, import, delete items,
 //     manage staff.
 //   - Staff can read items, record IN/OUT, add new items, read history.
-//   - History ("movements") can be created but NEVER edited by anyone. Only
+//   - History ("movements") can be created but NEVER edited by anyone.
+//     A rolling 10-day copy ("historyBackup") is kept for the owner and cannot be deleted by hand. Only
 //     the owner can delete (the "Purge history" feature that frees storage).
 //   - Every stock change must come with a matching history entry in the same
 //     save, the numbers must add up, and stock can never go below zero.
@@ -144,7 +145,9 @@ service cloud.firestore {
     function changeBound(itemId, n, o) {
       let m = getAfter(movePathFor(n.lastMoveId)).data;
       let changed = n.diff(o).affectedKeys();
-      return m.itemId == itemId && m.by == request.auth.uid && m.stockAfter == n.qty
+      return m.by == request.auth.uid
+        && (
+          (m.itemId == itemId && m.stockAfter == n.qty
         && (
           // stock IN / OUT (staff or owner): only quantity fields change
           (
@@ -173,6 +176,16 @@ service cloud.firestore {
             && m.qty > 0
             && changed.hasOnly(['lastMoveId', 'updatedAt', 'updatedBy'])
             && n.qty == o.qty
+          )
+        ))
+          // renaming a supplier (owner only): ONE shared history entry (type RENAME)
+          // covers every item; only the supplier tag changes, never a quantity
+          || (
+            m.type == 'RENAME'
+            && isOwner()
+            && n.qty == o.qty
+            && changed.hasOnly(['bySupplier', 'lastMoveId', 'updatedAt', 'updatedBy'])
+            && supplierTagsNoValueChange(n, o, changed)
           )
         );
     }
@@ -206,7 +219,8 @@ service cloud.firestore {
     // The audit trail. Entries can never be edited. Only the OWNER can delete
     // (Purge history; the app asks for a date range). Current stock
     // lives in /items and is not affected.
-    function validMove(d) {
+    // Shape of a history entry (shared by the history and its automatic 10-day backup).
+    function moveShape(d) {
       return d.keys().hasOnly([
           'itemId', 'itemName', 'partNo', 'type', 'qty', 'stockAfter', 'unit',
           'note', 'supplier', 'by', 'byName', 'at', 'location', 'toLocation',
@@ -219,15 +233,14 @@ service cloud.firestore {
         && isStr(d.itemId, 40) && d.itemId.size() > 0
         && isStr(d.itemName, 120)
         && isStr(d.partNo, 60)
-        && d.type in ['IN', 'OUT', 'NEW', 'EDIT', 'DELETE', 'MOVE']
+        && d.type in ['IN', 'OUT', 'NEW', 'EDIT', 'DELETE', 'MOVE', 'RENAME']
         && isNum(d.qty) && d.qty >= 0 && d.qty <= 10000000
         && isNum(d.stockAfter) && d.stockAfter >= 0 && d.stockAfter <= 10000000
         && validUnit(d.unit)
         && isStr(d.note, 300)
         && isStr(d.supplier, 80)
         && isStr(d.byName, 80)
-        && d.by == request.auth.uid
-        && d.at == request.time
+        && isStr(d.by, 128)
         // optional location (where the stock is / was taken from) and, for a MOVE, where it went
         && (!('location' in d) || (isStr(d.location, 80) && (d.location == '' || validLocation(d.location))))
         && (!('location' in d) || d.location == '' || d.supplier.size() > 0)
@@ -238,7 +251,13 @@ service cloud.firestore {
         && (d.type != 'MOVE'
             || ('location' in d && 'toLocation' in d
                 && d.supplier.size() > 0
-                && d.toLocation != d.location));
+                && d.toLocation != d.location))
+        // a supplier rename is one entry for all its items (no quantity of its own)
+        && (d.type != 'RENAME' || (d.supplier.size() > 0 && d.qty == 0));
+    }
+
+    function validMove(d) {
+      return moveShape(d) && d.by == request.auth.uid && d.at == request.time;
     }
 
     function moveBound(moveId, d) {
@@ -261,11 +280,37 @@ service cloud.firestore {
         && validMove(request.resource.data)
         && (
           // Owner only: bulk-import / delete markers need no item link.
-          (isOwner() && request.resource.data.type in ['NEW', 'DELETE'])
+          (isOwner() && request.resource.data.type in ['NEW', 'DELETE', 'RENAME'])
           // Everything else: the item must be saved in the same batch and
           // point back at this entry.
           || moveBound(moveId, request.resource.data)
         );
+    }
+
+    // ------------------------------------------------------ historyBackup
+    // Automatic rolling 10-day copy of the history, readable by the OWNER only.
+    // The app writes a copy of every history entry in the same save. Nobody can
+    // edit a copy, and a copy can only be removed once it is older than 10 days
+    // (the owner's app tidies these up automatically). Deleting from the normal
+    // history never touches it. The owner's app also fills in recent entries
+    // that were made before this backup existed.
+    function backupBound(bid, d) {
+      let m = getAfter(/databases/$(database)/documents/movements/$(bid)).data;
+      return m.itemId == d.itemId && m.type == d.type && m.qty == d.qty && m.supplier == d.supplier;
+    }
+
+    match /historyBackup/{bid} {
+      allow read: if isOwner();
+      allow create: if isMember()
+        && moveShape(request.resource.data)
+        && (
+          (request.resource.data.by == request.auth.uid
+            && request.resource.data.at == request.time
+            && (isOwner() || backupBound(bid, request.resource.data)))
+          || (isOwner() && request.resource.data.at is timestamp && request.resource.data.at <= request.time)
+        );
+      allow update: if false;
+      allow delete: if isOwner() && resource.data.at < request.time - duration.value(10, 'd');
     }
 
     // ---------------------------------------------------------- suppliers

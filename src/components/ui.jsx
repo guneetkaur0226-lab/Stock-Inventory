@@ -130,9 +130,11 @@ export function ConfirmProvider({ children }) {
             <h2>{st.title}</h2>
             <p>{st.message}</p>
             <div className="row gap">
-              <button className="btn" onClick={() => done(false)}>
-                Cancel
-              </button>
+              {!st.info && (
+                <button className="btn" onClick={() => done(false)}>
+                  Cancel
+                </button>
+              )}
               <button className={`btn ${st.danger ? 'danger' : 'primary'}`} onClick={() => done(true)}>
                 {st.okText || 'OK'}
               </button>

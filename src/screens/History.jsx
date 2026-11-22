@@ -4,8 +4,8 @@ import { db } from '../firebase.js';
 import { useAuth } from '../auth.jsx';
 import { useToast, Icon, Empty, Spinner, Sheet } from '../components/ui.jsx';
 import PurgeHistory from './PurgeHistory.jsx';
-import MoveRow from '../components/MoveRow.jsx';
-import { fmtDate } from '../lib/format.js';
+import DayCards from '../components/DayCards.jsx';
+import HistoryBackup from './HistoryBackup.jsx';
 import { applyHistoryFilters, resolveDateRange } from '../lib/historyFilter.js';
 import { useData } from '../store.jsx';
 import LocationSelect from '../components/LocationSelect.jsx';
@@ -16,8 +16,7 @@ import { historyRows } from '../lib/exporter.js';
 const TYPES = ['ALL', 'IN', 'OUT', 'MOVE', 'NEW', 'EDIT', 'DELETE'];
 
 export default function History() {
-  const auth = useAuth();
-  const { isOwner } = auth;
+  const { isOwner } = useAuth();
   const toast = useToast();
   const [count, setCount] = useState(300);
   const [moves, setMoves] = useState(null);
@@ -27,6 +26,7 @@ export default function History() {
   const { items, suppliers } = useData();
   const [showFilters, setShowFilters] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
   const [staff, setStaff] = useState('');
   const [supplier, setSupplier] = useState('');
   const [item, setItem] = useState('');
@@ -63,25 +63,12 @@ export default function History() {
   );
 
   // choices for the filter drop-downs: everything in the loaded history plus current items / suppliers
-  // everyone who can appear in the history: the owner and all members (the owner can read the member list),
-  // the person using the app, and anyone found in the loaded entries
-  const [people, setPeople] = useState([]);
-  useEffect(() => {
-    if (!isOwner) return undefined;
-    return onSnapshot(
-      collection(db, 'users'),
-      (s) => setPeople(s.docs.map((d) => ({ uid: d.id, name: d.data().name, role: d.data().role }))),
-      () => setPeople([])
-    );
-  }, [isOwner]);
+  // only people who actually have history entries (the owner too, when the owner has made entries)
   const staffOptions = useMemo(() => {
     const m = new Map();
-    const add = (uid, name, role) => uid && !m.has(uid) && m.set(uid, `${name || 'Unknown'}${role === 'owner' ? ' (Owner)' : ''}`);
-    people.forEach((p) => add(p.uid, p.name, p.role));
-    if (auth.fbUser) add(auth.fbUser.uid, auth.name, isOwner ? 'owner' : 'staff');
-    (moves || []).forEach((x) => add(x.by, x.byName, ''));
+    (moves || []).forEach((x) => x.by && !m.has(x.by) && m.set(x.by, x.byName || 'Unknown'));
     return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [moves, people, auth.fbUser, auth.name, isOwner]);
+  }, [moves]);
   const supplierOptions = useMemo(() => {
     const m = new Map();
     suppliers.forEach((s) => m.set(s.name.toLowerCase(), s.name));
@@ -97,6 +84,7 @@ export default function History() {
 
   const list = useMemo(() => (moves ? applyHistoryFilters(moves, { type, q: dq, staff, supplier, item, location }) : []), [moves, dq, type, staff, supplier, item, location]);
   const activeFilters = [staff, supplier, item, location].filter(Boolean).length + (dateKind !== 'all' ? 1 : 0);
+  const filtersActive = activeFilters > 0 || type !== 'ALL' || dq.trim() !== '';
   const clearFilters = () => {
     setStaff('');
     setSupplier('');
@@ -122,7 +110,6 @@ export default function History() {
     setBusy(false);
   }
 
-  let lastDay = '';
   return (
     <>
       <div className="searchbar">
@@ -216,6 +203,16 @@ export default function History() {
           </button>
         </div>
       )}
+      {isOwner && (
+        <button className="btn" onClick={() => setBackupOpen(true)}>
+          <Icon name="clock" size={18} /> Last 10 days backup
+        </button>
+      )}
+      {backupOpen && (
+        <Sheet title="Last 10 days backup" onClose={() => setBackupOpen(false)} tall>
+          <HistoryBackup />
+        </Sheet>
+      )}
       {deleteOpen && (
         <Sheet title="Delete history" onClose={() => setDeleteOpen(false)} tall>
           <PurgeHistory />
@@ -227,18 +224,7 @@ export default function History() {
         <Empty icon="clock" title="No history found">History entries appear here after stock is added, taken out or edited.</Empty>
       ) : (
         <div className="moves">
-          {list.map((m) => {
-            const d = m.at?.toDate?.();
-            const day = d ? fmtDate(d, true) : 'Today';
-            const head = day !== lastDay ? <h3 className="day" key={'d' + m.id}>{day}</h3> : null;
-            lastDay = day;
-            return (
-              <div key={m.id}>
-                {head}
-                <MoveRow m={m} />
-              </div>
-            );
-          })}
+          <DayCards moves={list} openByDefault={filtersActive} />
           {moves.length >= count && (
             <button className="btn" onClick={() => setCount((c) => c + 300)}>
               Load older entries

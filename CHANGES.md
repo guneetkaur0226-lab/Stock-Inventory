@@ -1,3 +1,13 @@
+# Changes: remove-item guard, one rename entry, date cards, 10-day backup
+
+**Publish the updated `firestore.rules` FIRST** (new RENAME history type and the new `historyBackup` collection).
+
+* **Remove item from supplier** (Edit supplier): always asks to confirm. If the item still has quantity for that supplier, it is blocked with: "This item cannot be removed because its quantity is not zero. Please clear the entire item quantity for this supplier before removing it." Removing a location with quantity is blocked the same way.
+* **Rename supplier = ONE history entry** (type RENAMED: old name → new name, number of items), instead of one per item. Older duplicate entries stay as they are (history is never edited); the owner can remove them with Delete history.
+* **History tab**: one card per date; tap a date to open its entries. When a filter or search is active the dates open automatically. The Member filter lists only people who have entries.
+* **Last 10 days backup** (owner only, History tab): date cards for the last 10 days. Every history entry is copied to a separate `historyBackup` collection in the same save. The app has no delete/edit for it; the rules refuse edits, and refuse deletes of anything newer than 10 days. The owner's app removes copies older than 10 days by itself and, the first time, copies the last 10 days of existing history. Deleting from the normal History does not touch it.
+* Import now saves 150 items per batch (each item writes 3 documents now).
+
 # Changes: confirm box, owner in History member filter
 
 * The IN/OUT confirmation no longer shows the "At this location" line.

@@ -429,6 +429,32 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
   };
   // an item can only be taken off the supplier when none of its quantities would be lost
   const itemLocked = (p) => p.entries.some((e) => e.qty > 0) || legacyQty(p) > 0;
+  const NOT_ZERO = 'This item cannot be removed because its quantity is not zero. Please clear the entire item quantity for this supplier before removing it.';
+  async function askRemoveItem(p) {
+    if (itemLocked(p)) {
+      await confirm({ title: 'Cannot remove item', message: NOT_ZERO, okText: 'OK', info: true });
+      return;
+    }
+    const ok = await confirm({
+      title: 'Remove item?',
+      message: `Remove “${itemOf(p.itemId).name}” from this supplier? You can add it again later. (Applies when you save.)`,
+      okText: 'Remove',
+      danger: true,
+    });
+    if (ok) dropItem(p);
+  }
+  async function askRemoveLocation(p, en) {
+    if (en.qty > 0) {
+      await confirm({
+        title: 'Cannot remove location',
+        message: 'This location cannot be removed because its quantity is not zero. Please clear the entire quantity at this location for this supplier before removing it.',
+        okText: 'OK',
+        info: true,
+      });
+      return;
+    }
+    dropEntry(p.itemId, en);
+  }
 
   async function submit() {
     const e = {};
@@ -552,9 +578,8 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
                   <button
                     type="button"
                     className="icon-btn"
-                    onClick={() => dropEntry(p.itemId, en)}
-                    disabled={en.qty > 0}
-                    title={en.qty > 0 ? 'Take the stock OUT or move it first' : 'Remove this location'}
+                    onClick={() => askRemoveLocation(p, en)}
+                    title="Remove this location"
                     aria-label="Remove location"
                   >
                     <Icon name="close" />
@@ -568,9 +593,8 @@ function SupplierForm({ start, supplierNames, rowsByItem, onClose }) {
                 <button
                   type="button"
                   className="btn sm danger-o"
-                  onClick={() => dropItem(p)}
-                  disabled={itemLocked(p)}
-                  title={itemLocked(p) ? 'This supplier still has stock of this item' : 'Remove item from this supplier'}
+                  onClick={() => askRemoveItem(p)}
+                  title="Remove item from this supplier"
                 >
                   <Icon name="trash" size={16} /> Remove item
                 </button>
